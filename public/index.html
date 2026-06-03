@@ -1,0 +1,1120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#10131a" />
+<title>Amp Control</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Amp" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#10131a; --surface-lowest:#0b0e15; --surface-low:#191b23; --surface:#1d2027;
+    --surface-high:#272a31; --surface-highest:#32353c;
+    --ink:#e1e2ec; --muted:#c2c6d6; --dim:#8c909f; --line:#424754;
+    --primary:#4d8eff; --primary-soft:#adc6ff; --secondary:#4edea3; --tertiary:#ffb786;
+    --error:#ffb4ab;
+    --track:#0b0e15;
+    --radius:16px; --radius-md:12px; --radius-sm:8px;
+    --ease:cubic-bezier(.2,.9,.3,1.2);
+    --ease-spring:cubic-bezier(.34,1.56,.64,1);
+    --ease-out:cubic-bezier(.16,1,.3,1);
+    --shadow-card:0 10px 30px rgba(0,0,0,.38);
+    --shadow-inset:inset 0 1px 3px rgba(0,0,0,.65);
+    --glow:0 0 0 3px rgba(77,142,255,.22), 0 0 16px rgba(77,142,255,.4);
+    --glow-green:0 0 8px rgba(78,222,163,.8);
+    --font:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--font); background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+    font-weight:500; font-size:14px; line-height:20px;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 76px) env(safe-area-inset-left);
+  }
+  @media(min-width:900px){ body{ padding-bottom:env(safe-area-inset-bottom) } }
+  svg{width:1em;height:1em;display:block}
+  .caps{font-size:11px; font-weight:700; line-height:16px; letter-spacing:.08em; text-transform:uppercase}
+  .num{font-weight:600; font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+
+  /* ---- App bar ---- */
+  .appbar{position:sticky; top:0; z-index:30; backdrop-filter:blur(14px);
+    background:rgba(16,19,26,.85); border-bottom:1px solid var(--line); padding:14px 18px;
+    display:flex; align-items:center; gap:16px}
+  .brand{display:flex; flex-direction:column; line-height:1.1}
+  .brand b{font-size:20px; font-weight:700; letter-spacing:-.01em}
+  .brand small{margin-top:4px; color:var(--dim)}
+  .tabs{display:none; gap:6px; margin-left:14px}
+  @media(min-width:900px){ .tabs{display:flex} }
+  .tab{padding:9px 16px; border-radius:var(--radius-md); font-weight:600; color:var(--muted); cursor:pointer;
+       border:1px solid transparent; transition:color .18s, background .22s var(--ease-out), border-color .2s, transform .15s var(--ease-spring)}
+  .tab:hover{color:var(--ink); background:var(--surface-high)}
+  .tab:active{transform:scale(.95)}
+  .tab.active{color:var(--ink); background:var(--surface-high); border-color:var(--line); box-shadow:var(--shadow-inset)}
+  .barright{margin-left:auto; display:flex; align-items:center; gap:10px}
+  .badge{display:flex; align-items:center; gap:8px; font-weight:600; color:var(--dim);
+         background:var(--surface-high); border:1px solid var(--line); padding:7px 13px; border-radius:999px; box-shadow:var(--shadow-inset);
+         cursor:pointer; transition:background .15s, border-color .15s, transform .18s var(--ease-spring)}
+  .badge:hover{background:var(--surface-highest)} .badge:active{transform:scale(.95)}
+  .badge .dot{width:8px;height:8px;border-radius:50%;background:var(--dim); transition:.2s}
+  .badge.ok{color:var(--secondary)} .badge.ok .dot{background:var(--secondary); box-shadow:var(--glow-green)}
+  .badge.bad{color:var(--error)} .badge.bad .dot{background:var(--error)}
+  .alloff{display:flex; align-items:center; gap:8px; font-weight:600; padding:9px 14px; border-radius:var(--radius-md);
+          background:var(--surface-high); border:1px solid var(--line); color:var(--dim); cursor:pointer;
+          transition:background .15s, border-color .15s, color .15s, transform .2s var(--ease-spring), box-shadow .15s}
+  .alloff.live{border-color:var(--primary); color:var(--primary-soft)}
+  .alloff.live:hover{background:var(--surface-highest); box-shadow:0 0 14px rgba(77,142,255,.18)}
+  .alloff:active{transform:scale(.93)}
+  .alloff[disabled]{opacity:.4; cursor:default; box-shadow:none; transform:none}
+
+  .wrap{max-width:1320px; margin:0 auto; padding:24px}
+  .view{display:none} .view.active{display:block; animation:fade .3s var(--ease-out)}
+  @keyframes fade{from{opacity:0; transform:translateY(10px) scale(.99)} to{opacity:1; transform:none}}
+
+  /* ---- Dashboard header ---- */
+  .dash{display:flex; align-items:flex-end; gap:12px; margin-bottom:20px; flex-wrap:wrap}
+  .dash h2{margin:0; font-size:24px; font-weight:700; letter-spacing:-.02em; line-height:32px}
+  .dash p{margin:6px 0 0; color:var(--muted)}
+  .dash .acts{margin-left:auto; display:none; gap:10px}
+  @media(min-width:900px){ .dash .acts{display:flex} }
+  .btn{padding:10px 16px; border-radius:var(--radius-md); border:1px solid var(--line); background:var(--surface-high);
+       color:var(--ink); font-weight:600; font-size:14px; cursor:pointer;
+       transition:background .18s var(--ease-out), border-color .18s, color .18s, transform .18s var(--ease-spring), box-shadow .18s;
+       display:inline-flex; align-items:center; gap:8px; justify-content:center}
+  .btn:hover{background:var(--surface-highest)} .btn:active{transform:scale(.94)}
+  .btn.primary{background:var(--primary); border-color:var(--primary); color:#fff; box-shadow:0 4px 14px rgba(77,142,255,.3)}
+  .btn.primary:hover{background:#3f80f5}
+  .btn.danger{background:rgba(255,180,171,.13); border-color:rgba(255,180,171,.5); color:var(--error)}
+  .btn.block{width:100%}
+  .btn[disabled]{opacity:.5; cursor:default; box-shadow:none}
+
+  /* ---- Zone grid ---- */
+  .grid{display:grid; grid-template-columns:1fr; gap:20px}
+  @media(min-width:560px){ .grid{grid-template-columns:repeat(2,1fr)} }
+  @media(min-width:980px){ .grid{grid-template-columns:repeat(3,1fr)} }
+  @media(min-width:1300px){ .grid{grid-template-columns:repeat(4,1fr)} }
+  .zone{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px;
+        box-shadow:var(--shadow-card); transition:filter .5s var(--ease-out), border-color .25s ease}
+  .grid.intro .zone{animation:cardIn .35s var(--ease-out) both}
+  @keyframes cardIn{from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none}}
+  .zone.off{filter:brightness(.62) saturate(.7)}
+  .ztop{display:flex; align-items:flex-start; gap:12px}
+  .zicon{flex:0 0 auto; width:36px; height:36px; display:grid; place-items:center;
+         font-size:26px; color:var(--primary-soft); transition:color .4s var(--ease-out)}
+  .zone.off .zicon{color:var(--dim)}
+  .zmeta{display:flex; flex-direction:column; gap:4px; min-width:0}
+  .zmeta .tag{color:var(--dim)}
+  .zmeta .nm{font-weight:600; font-size:18px; line-height:24px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .zmeta .st{font-size:12px; color:var(--dim); display:flex; align-items:center; gap:7px}
+  .zmeta .st i{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .zmeta .st.on{color:var(--secondary)} .zmeta .st.on i{background:var(--secondary); box-shadow:var(--glow-green)}
+
+  /* switch */
+  .sw{margin-left:auto; flex:0 0 auto; width:48px; height:28px; border-radius:999px; border:1px solid var(--line);
+      background:var(--surface-high); box-shadow:var(--shadow-inset); position:relative; cursor:pointer;
+      transition:background .38s var(--ease-out), border-color .35s var(--ease-out), box-shadow .38s var(--ease-out)}
+  .sw::after{content:""; position:absolute; top:4px; left:4px; width:20px; height:20px; border-radius:50%;
+             background:var(--dim); box-shadow:0 1px 3px rgba(0,0,0,.5);
+             transition:left .4s var(--ease-out), width .18s var(--ease), background .35s var(--ease-out)}
+  .sw.on{background:var(--primary); border-color:var(--primary); box-shadow:var(--glow)}
+  .sw.on::after{left:24px; background:#fff}
+  .sw:active::after{width:24px}
+  .sw.on:active::after{left:20px}
+
+  .ctl{margin-top:16px; transition:opacity .45s var(--ease-out), filter .45s var(--ease-out)}
+  .ctl.locked{opacity:.4; pointer-events:none; filter:saturate(.4)}
+  .lbl{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; color:var(--muted)}
+  .lbl span{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase}
+  .lbl b{color:var(--ink); font-weight:600; font-size:14px; font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; transition:color .15s}
+
+  /* range / faders */
+  input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:999px;
+                    background:var(--track); box-shadow:var(--shadow-inset); outline:none; cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:8px; background:transparent}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:20px; height:20px; margin-top:-6px; border-radius:50%;
+    background:#fff; border:none; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,.55);
+    transition:transform .16s var(--ease-spring), box-shadow .18s ease}
+  input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.1)}
+  input[type=range]:active::-webkit-slider-thumb{transform:scale(1.28); box-shadow:0 2px 8px rgba(0,0,0,.55), var(--glow)}
+  input[type=range]::-moz-range-thumb{width:18px; height:18px; border-radius:50%; background:#fff; border:none; box-shadow:0 2px 5px rgba(0,0,0,.55)}
+  .balcap{display:flex; justify-content:space-between; margin-top:6px; font-size:10px; font-weight:700;
+          letter-spacing:.08em; color:var(--dim)}
+
+  .srcs{display:flex; flex-wrap:wrap; gap:8px}
+  .src{display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:var(--radius-sm); border:1px solid var(--line);
+       background:transparent; color:var(--muted); font-size:13px; font-weight:500; cursor:pointer; user-select:none; transition:.15s var(--ease)}
+  .src{transition:background .18s var(--ease-out), border-color .18s, color .18s, transform .16s var(--ease-spring), box-shadow .2s}
+  .src:hover{border-color:var(--dim)} .src:active{transform:scale(.93)}
+  .src svg{font-size:16px}
+  .src.active{background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; box-shadow:var(--glow)}
+  .mini{display:flex; gap:8px; margin-top:16px}
+  details{margin-top:14px} summary{cursor:pointer; color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    list-style:none; display:flex; align-items:center; gap:8px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"›"; transition:transform .2s ease; display:inline-block; font-size:16px}
+  details[open] summary::before{transform:rotate(90deg)}
+  .adv{margin-top:14px}
+
+  .empty{color:var(--muted); text-align:center; padding:48px 16px; line-height:1.5; border:1px dashed var(--line); border-radius:var(--radius)}
+
+  /* ---- Status modal ---- */
+  .modal h3{margin:18px 0 10px; color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase}
+  .modal h3:first-of-type{margin-top:4px}
+  .hrow{display:flex; justify-content:space-between; padding:9px 0; border-top:1px solid var(--line)}
+  .hrow:first-of-type{border-top:none}
+  .hrow span{color:var(--muted)} .hrow b{font-weight:600; font-variant-numeric:tabular-nums}
+
+  /* ---- Settings ---- */
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px; margin-bottom:16px; box-shadow:var(--shadow-card)}
+  .panel h3{margin:0 0 16px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--primary-soft)}
+  .field label{display:block; margin-bottom:8px; color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase}
+  .input{width:100%; background:var(--surface-lowest); border:1px solid var(--line); border-radius:var(--radius-md); color:var(--ink);
+         padding:12px 14px; font-family:var(--font); font-size:14px; font-weight:500; box-shadow:var(--shadow-inset); transition:.15s}
+  .input:focus{outline:none; border-color:var(--primary)}
+  .setrow{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .setrow .ix{flex:0 0 24px; color:var(--dim); font-weight:600; font-variant-numeric:tabular-nums}
+  .setrow .input{flex:1}
+  .iconpick{flex:0 0 auto; width:46px; height:46px; border-radius:var(--radius-md); display:grid; place-items:center; font-size:20px;
+            background:var(--surface-high); border:1px solid var(--line); color:var(--ink); cursor:pointer; transition:.15s var(--ease)}
+  .iconpick:active{transform:scale(.93)} .iconpick:hover{border-color:var(--primary)}
+  .visbtn{flex:0 0 auto; width:42px; height:42px; border-radius:var(--radius-md); display:grid; place-items:center; font-size:18px;
+          background:var(--surface-high); border:1px solid var(--line); color:var(--primary-soft); cursor:pointer; transition:.15s var(--ease)}
+  .visbtn:active{transform:scale(.93)} .visbtn:hover{border-color:var(--primary)}
+  .visbtn.hidden{color:var(--dim)}
+  .setrow.off .input, .setrow.off .iconpick{opacity:.45}
+  .ref{color:var(--muted); line-height:1.7}
+  .setfoot{display:flex; gap:10px; margin-top:4px}
+
+  /* ---- Presets ---- */
+  .scenegrid{display:grid; grid-template-columns:1fr; gap:16px; align-items:start}
+  @media(min-width:720px){ .scenegrid{grid-template-columns:repeat(2,1fr)} }
+  @media(min-width:1180px){ .scenegrid{grid-template-columns:repeat(3,1fr)} }
+  .scenegrid .empty{grid-column:1 / -1}
+  .preset{display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow-card); transition:border-color .2s, box-shadow .2s}
+  .preset .chips{flex:1 1 auto; align-content:flex-start}
+  .preset .prow{margin-top:auto}
+  .preset.active{border-color:var(--secondary); box-shadow:0 0 0 1px var(--secondary), var(--shadow-card)}
+  .preset.applying{border-color:var(--primary); box-shadow:0 0 0 1px var(--primary), var(--shadow-card); animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.72}}
+  .ptop{display:flex; align-items:center; gap:12px}
+  .picon-id{flex:0 0 auto; width:40px; height:40px; display:grid; place-items:center; font-size:28px; color:var(--primary-soft)}
+  .pmeta{min-width:0; margin-right:auto}
+  .ptag{color:var(--dim)}
+  .pname{font-size:20px; font-weight:600; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .ppill{flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700; letter-spacing:.04em;
+         text-transform:uppercase; color:var(--secondary); background:rgba(78,222,163,.12); border:1px solid rgba(78,222,163,.4);
+         padding:5px 10px; border-radius:999px}
+  .ppill svg{font-size:13px}
+  .pmenu{flex:0 0 auto; color:var(--dim); background:none; border:none; cursor:pointer; font-size:20px; padding:6px;
+         display:grid; place-items:center; border-radius:var(--radius-md); transition:color .18s, background .18s}
+  .pmenu:hover{color:var(--ink); background:var(--surface-high)}
+  .prow{display:flex; gap:10px; align-items:stretch; margin-top:2px}
+  .prow .btn.block{flex:1; width:auto}
+  .paff{color:var(--muted); margin:14px 0 10px}
+  .chips{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:16px}
+  .chip{font-size:11px; font-weight:700; letter-spacing:.04em; padding:5px 10px; border-radius:var(--radius-sm); background:var(--surface-high); border:1px solid var(--line); color:var(--muted); text-transform:uppercase}
+  .custom{background:linear-gradient(135deg, rgba(77,142,255,.16), rgba(78,222,163,.1)); border:1px solid rgba(77,142,255,.4)}
+  .custom h3{margin:0; font-size:18px; font-weight:600; color:var(--ink)}
+  .custom p{color:var(--muted); margin:8px 0 16px; line-height:1.5}
+
+  /* ---- Bottom nav (mobile) ---- */
+  .botnav{position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex; justify-content:space-around;
+          background:rgba(16,19,26,.94); backdrop-filter:blur(14px); border-top:1px solid var(--line);
+          padding:9px 0 calc(9px + env(safe-area-inset-bottom))}
+  @media(min-width:900px){ .botnav{display:none} }
+  .nav{display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--dim); font-size:11px; font-weight:600;
+       cursor:pointer; padding:4px 20px; border-radius:var(--radius-md); background:none; border:none;
+       transition:color .18s var(--ease-out), transform .15s var(--ease-spring)}
+  .nav:active{transform:scale(.9)}
+  .nav svg{font-size:22px; transition:transform .28s var(--ease-spring)}
+  .nav.active{color:var(--primary)} .nav.active svg{transform:translateY(-2px) scale(1.1)}
+
+  /* ---- Live-edit bar (scene editing in the Mixer) ---- */
+  .editbar{position:fixed; left:0; right:0; bottom:0; z-index:40; display:none; align-items:center; gap:12px;
+           background:rgba(16,19,26,.97); backdrop-filter:blur(14px); border-top:2px solid var(--primary);
+           padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+  .editbar.show{display:flex}
+  .editbar .etxt{flex:1; min-width:0; font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .editbar .etxt small{display:block; color:var(--dim); font-weight:500; font-size:12px; text-transform:none; letter-spacing:0}
+  body.editing{padding-bottom:78px}
+
+  /* ---- Action sheet (scene options) ---- */
+  .sheet{background:var(--surface-high); border:1px solid var(--line); border-radius:var(--radius); max-width:430px; width:100%;
+         padding:10px; box-shadow:var(--shadow-card)}
+  .sheet h2{margin:6px 10px 10px; font-size:13px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--dim)}
+  .sheetbtn{display:flex; align-items:center; gap:12px; width:100%; text-align:left; padding:14px 12px; border:none; background:none;
+            color:var(--ink); font-family:var(--font); font-size:15px; font-weight:500; cursor:pointer; border-radius:var(--radius-md); transition:background .14s}
+  .sheetbtn:hover{background:var(--surface-low)} .sheetbtn svg{font-size:20px; color:var(--primary-soft); flex:0 0 auto}
+  .sheetbtn.danger{color:var(--error)} .sheetbtn.danger svg{color:var(--error)}
+
+  /* ---- Overlay / icon picker / prompt ---- */
+  .overlay{position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:center; justify-content:center; z-index:60; padding:20px}
+  .overlay.show{display:flex; animation:fade .18s ease}
+  .modal{background:var(--surface-high); border:1px solid var(--line); border-radius:var(--radius); max-width:430px; width:100%; padding:22px; box-shadow:var(--shadow-card)}
+  .modal h2{margin:0 0 16px; font-size:18px; font-weight:600}
+  .iconsgrid{display:grid; grid-template-columns:repeat(5,1fr); gap:10px; max-height:62vh; overflow-y:auto; padding-right:4px}
+  .icopt{aspect-ratio:1; display:grid; place-items:center; font-size:22px; border-radius:var(--radius-md); background:var(--surface-low);
+         border:1px solid var(--line); color:var(--ink); cursor:pointer; transition:.13s var(--ease)}
+  .icopt:active{transform:scale(.9)} .icopt:hover{border-color:var(--primary)}
+
+  /* ---- Toast ---- */
+  .toast{position:fixed; left:50%; bottom:92px; transform:translateX(-50%) translateY(24px); z-index:80;
+         display:flex; align-items:center; gap:11px; max-width:90vw; font-weight:600;
+         background:var(--surface-high); border:1px solid rgba(255,180,171,.55); color:var(--ink);
+         padding:13px 17px; border-radius:var(--radius-md); box-shadow:var(--shadow-card);
+         opacity:0; pointer-events:none; transition:opacity .25s var(--ease-out), transform .42s var(--ease-spring)}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+  .toast .ic{flex:0 0 auto; color:var(--error); display:grid; place-items:center; font-size:18px}
+  @media(min-width:900px){ .toast{bottom:24px} }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+<div class="appbar">
+  <div class="brand"><b id="appTitle">Amp Control</b><small class="caps" id="brandSub">Multizone Audio Control</small></div>
+  <div class="tabs">
+    <div class="tab active" data-view="presets">Scenes</div>
+    <div class="tab" data-view="mixer">Mixer</div>
+    <div class="tab" data-view="settings">Settings</div>
+  </div>
+  <div class="barright">
+    <div class="badge" id="badge" title="System status"><span class="dot"></span><span id="badgeText" class="caps">connecting</span></div>
+    <button class="alloff" id="allOff" disabled title="Turn off all active zones"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>All off</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <!-- MIXER -->
+  <section class="view" id="view-mixer">
+    <div class="dash">
+      <div><h2>Mixer</h2><p id="dashSub">—</p></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none"></div>
+  </section>
+
+  <!-- PRESETS -->
+  <section class="view active" id="view-presets">
+    <div class="dash"><div><h2>Scenes</h2><p>Apply settings to many zones at once.</p></div></div>
+    <div class="scenegrid">
+      <div id="presetList" style="display:contents"></div>
+      <div class="preset custom">
+        <h3>Create a scene</h3>
+        <p>Save how every zone is set right now — power, volume, source and tone — as a one-tap scene.</p>
+        <button class="btn primary block" id="savePreset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Save as new scene</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="view-settings">
+    <div class="dash"><div><h2>Settings</h2><p>Saved on the amp server — shared across all your devices.</p></div></div>
+    <div class="panel">
+      <h3>System identity</h3>
+      <div class="field"><label>App name</label><input class="input" id="setTitle" placeholder="Amp Control"></div>
+    </div>
+    <div class="panel">
+      <h3>Zone names &amp; icons</h3>
+      <div class="ref" style="margin-bottom:12px">Toggle a zone off to hide it from the Mixer and Scenes. Hidden zones are also powered off.</div>
+      <div id="zoneFields"></div>
+    </div>
+    <div class="panel">
+      <h3>Source names &amp; icons</h3>
+      <div class="ref" style="margin-bottom:12px">Toggle a source off to hide it from every zone.</div>
+      <div id="srcFields"></div>
+    </div>
+    <div class="panel">
+      <h3>Settings protection</h3>
+      <div class="ref" id="pinStatus" style="margin-bottom:12px">—</div>
+      <div class="setfoot">
+        <button class="btn" id="pinSet">Set PIN</button>
+        <button class="btn danger" id="pinClear" style="display:none">Remove PIN</button>
+      </div>
+    </div>
+    <div class="setfoot">
+      <button class="btn primary" id="setSave">Save changes</button>
+      <button class="btn" id="setCancel">Cancel</button>
+    </div>
+  </section>
+</div>
+
+<div class="editbar" id="editBar">
+  <div class="etxt" id="editText">Editing scene<small>Adjust zones, then save</small></div>
+  <button class="btn" id="editCancel">Cancel</button>
+  <button class="btn primary" id="editSave">Save changes</button>
+</div>
+
+<div class="botnav">
+  <button class="nav active" data-view="presets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Scenes</button>
+  <button class="nav" data-view="mixer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>Mixer</button>
+  <button class="nav" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+</div>
+
+<div class="overlay" id="statusOverlay"><div class="modal">
+  <h2>System status</h2>
+  <h3>Connection</h3>
+  <div class="hrow"><span>Connection</span><b id="hConn">—</b></div>
+  <div class="hrow"><span>Zones detected</span><b id="hZones">—</b></div>
+  <div class="hrow"><span>Last reply</span><b id="hRx">—</b></div>
+  <div class="hrow"><span>Server uptime</span><b id="hUp">—</b></div>
+  <h3>Hardware reference</h3>
+  <div class="ref" id="hwRef">—</div>
+  <div class="setfoot" style="margin-top:18px"><button class="btn block" id="statusClose">Close</button></div>
+</div></div>
+<div class="overlay" id="iconOverlay"><div class="modal"><h2>Choose an icon</h2><div class="iconsgrid" id="iconsGrid"></div></div></div>
+<div class="overlay" id="sceneMenuOverlay"><div class="sheet">
+  <h2 id="sceneMenuTitle">Scene</h2>
+  <button class="sheetbtn" id="smRename"></button>
+  <button class="sheetbtn" id="smIcon"></button>
+  <button class="sheetbtn danger" id="smDelete"></button>
+  <button class="sheetbtn" id="smCancel"></button>
+</div></div>
+<div class="overlay" id="promptOverlay"><div class="modal"><h2 id="promptTitle">Name</h2>
+  <input class="input" id="promptInput" style="margin-bottom:18px">
+  <div class="setfoot"><button class="btn primary" id="promptOk">Save</button><button class="btn" id="promptCancel">Cancel</button></div>
+</div></div>
+<div class="overlay" id="confirmOverlay"><div class="modal"><h2 id="confirmTitle">Are you sure?</h2>
+  <p class="ref" id="confirmMsg" style="margin:0 0 18px"></p>
+  <div class="setfoot"><button class="btn danger" id="confirmOk">Delete</button><button class="btn" id="confirmCancel">Cancel</button></div>
+</div></div>
+
+<div class="toast" id="toast"><span class="ic"></span><span class="msg"></span></div>
+
+<script>
+// ---- Icon set (inline SVG, line style) ----------------------------------
+const PA = 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+const ICONS = {
+  music:`<svg viewBox="0 0 24 24" ${PA}><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/><path d="M9 18V5l11-2v13"/></svg>`,
+  tv:`<svg viewBox="0 0 24 24" ${PA}><rect x="3" y="7" width="18" height="13" rx="2"/><polyline points="8 3 12 7 16 3"/></svg>`,
+  radio:`<svg viewBox="0 0 24 24" ${PA}><rect x="2" y="8" width="20" height="12" rx="2"/><circle cx="16" cy="14" r="3"/><path d="M6 12h2M6 16h4"/><path d="M18 4 8 8"/></svg>`,
+  disc:`<svg viewBox="0 0 24 24" ${PA}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/></svg>`,
+  bluetooth:`<svg viewBox="0 0 24 24" ${PA}><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>`,
+  speaker:`<svg viewBox="0 0 24 24" ${PA}><rect x="6" y="2" width="12" height="20" rx="2"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6" r=".5"/></svg>`,
+  airplay:`<svg viewBox="0 0 24 24" ${PA}><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7Z"/></svg>`,
+  cast:`<svg viewBox="0 0 24 24" ${PA}><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><path d="M2 20h.01"/></svg>`,
+  mic:`<svg viewBox="0 0 24 24" ${PA}><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>`,
+  gamepad:`<svg viewBox="0 0 24 24" ${PA}><line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="18" y1="10" x2="18.01" y2="10"/><rect x="2" y="6" width="20" height="12" rx="2"/></svg>`,
+  headphones:`<svg viewBox="0 0 24 24" ${PA}><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 16a2 2 0 0 1-2 2h-1v-5h1a2 2 0 0 1 2 2zM3 16a2 2 0 0 0 2 2h1v-5H5a2 2 0 0 0-2 2z"/></svg>`,
+  waves:`<svg viewBox="0 0 24 24" ${PA}><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.5"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>`,
+  laptop:`<svg viewBox="0 0 24 24" ${PA}><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></svg>`,
+  phone:`<svg viewBox="0 0 24 24" ${PA}><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`,
+  plug:`<svg viewBox="0 0 24 24" ${PA}><path d="M9 2v6M15 2v6M6 8h12v2a6 6 0 0 1-12 0z"/><path d="M12 16v6"/></svg>`,
+  party:`<svg viewBox="0 0 24 24" ${PA}><path d="M2 22 8 8l8 8-14 6z"/><path d="M15 7a3 3 0 0 0 3-3M18 4l2-2M19 9l1 1M12 3l1 1"/></svg>`,
+  leaf:`<svg viewBox="0 0 24 24" ${PA}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></svg>`,
+  moon:`<svg viewBox="0 0 24 24" ${PA}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`,
+  sun:`<svg viewBox="0 0 24 24" ${PA}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`,
+  zap:`<svg viewBox="0 0 24 24" ${PA}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  star:`<svg viewBox="0 0 24 24" ${PA}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  home:`<svg viewBox="0 0 24 24" ${PA}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  // --- more devices / sources ---
+  vinyl:`<svg viewBox="0 0 24 24" ${PA}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r=".5"/></svg>`,
+  monitor:`<svg viewBox="0 0 24 24" ${PA}><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+  film:`<svg viewBox="0 0 24 24" ${PA}><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>`,
+  clapperboard:`<svg viewBox="0 0 24 24" ${PA}><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+  video:`<svg viewBox="0 0 24 24" ${PA}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`,
+  podcast:`<svg viewBox="0 0 24 24" ${PA}><path d="M16.85 18.58a9 9 0 1 0-9.7 0"/><path d="M8 14a5 5 0 1 1 8 0"/><circle cx="12" cy="11" r="1"/><path d="M13 17a1 1 0 1 0-2 0l.5 4.5a.5.5 0 0 0 1 0z"/></svg>`,
+  sliders:`<svg viewBox="0 0 24 24" ${PA}><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
+  // --- rooms / places ---
+  building:`<svg viewBox="0 0 24 24" ${PA}><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg>`,
+  sofa:`<svg viewBox="0 0 24 24" ${PA}><path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"/><path d="M2 11a2 2 0 0 1 2 2v3h16v-3a2 2 0 0 1 2-2 2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M4 18v2"/><path d="M20 18v2"/></svg>`,
+  bed:`<svg viewBox="0 0 24 24" ${PA}><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>`,
+  bath:`<svg viewBox="0 0 24 24" ${PA}><path d="M9 6 6.5 3.5a1.5 1.5 0 0 0-1-.5C4.7 3 4 3.7 4 4.5V17a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><line x1="10" y1="5" x2="8" y2="7"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="7" y1="19" x2="7" y2="21"/><line x1="17" y1="19" x2="17" y2="21"/></svg>`,
+  utensils:`<svg viewBox="0 0 24 24" ${PA}><path d="M4 3v6a2 2 0 0 0 4 0V3"/><line x1="6" y1="9" x2="6" y2="21"/><path d="M16 3c-1.5 0-3 1.5-3 4v4h3"/><line x1="16" y1="11" x2="16" y2="21"/></svg>`,
+  coffee:`<svg viewBox="0 0 24 24" ${PA}><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>`,
+  briefcase:`<svg viewBox="0 0 24 24" ${PA}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`,
+  book:`<svg viewBox="0 0 24 24" ${PA}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+  car:`<svg viewBox="0 0 24 24" ${PA}><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>`,
+  tree:`<svg viewBox="0 0 24 24" ${PA}><path d="m17 14 3 3.3a1 1 0 0 1-.7 1.7H4.7a1 1 0 0 1-.7-1.7L7 14h-1.3a1 1 0 0 1-.7-1.7L8 9H7a1 1 0 0 1-.7-1.7L12 2l5.7 5.3A1 1 0 0 1 17 9h-1l2.7 3.3a1 1 0 0 1-.7 1.7z"/><path d="M12 22v-3"/></svg>`,
+  droplet:`<svg viewBox="0 0 24 24" ${PA}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>`,
+  dumbbell:`<svg viewBox="0 0 24 24" ${PA}><path d="m6.5 6.5 11 11"/><path d="m21 21-1-1"/><path d="m3 3 1 1"/><path d="m18 22 4-4"/><path d="m2 6 4-4"/><path d="m3 10 7-7"/><path d="m14 21 7-7"/></svg>`,
+  flame:`<svg viewBox="0 0 24 24" ${PA}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`,
+  bell:`<svg viewBox="0 0 24 24" ${PA}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+  door:`<svg viewBox="0 0 24 24" ${PA}><path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M14 12v.01"/></svg>`,
+  // --- moods / scenes ---
+  sunrise:`<svg viewBox="0 0 24 24" ${PA}><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m17.66 12.34 1.41-1.41"/><path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/></svg>`,
+  target:`<svg viewBox="0 0 24 24" ${PA}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+  heart:`<svg viewBox="0 0 24 24" ${PA}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
+  gift:`<svg viewBox="0 0 24 24" ${PA}><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>`,
+  wine:`<svg viewBox="0 0 24 24" ${PA}><path d="M8 22h8"/><path d="M7 10h10"/><path d="M12 15v7"/><path d="M12 15a5 5 0 0 0 5-5c0-2-.5-4-1-8H8c-.5 4-1 6-1 8a5 5 0 0 0 5 5z"/></svg>`,
+  cake:`<svg viewBox="0 0 24 24" ${PA}><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3M12 8v3M17 8v3M7 4h.01M12 4h.01M17 4h.01"/></svg>`,
+  snowflake:`<svg viewBox="0 0 24 24" ${PA}><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><path d="m20 16-4-4 4-4M4 8l4 4-4 4M16 4l-4 4-4-4M8 20l4-4 4 4"/></svg>`,
+  cloud:`<svg viewBox="0 0 24 24" ${PA}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`,
+};
+const ICON_KEYS = Object.keys(ICONS);
+const svg = k => ICONS[k] || ICONS.music;
+// Context-relevant icons surface first; everything stays reachable.
+const ICON_CATS = {
+  source: ["music","tv","radio","disc","vinyl","bluetooth","speaker","airplay","cast","mic","gamepad","headphones","laptop","phone","monitor","film","clapperboard","podcast","video","sliders","waves"],
+  zone:   ["home","building","sofa","bed","bath","utensils","coffee","briefcase","book","car","tree","droplet","dumbbell","flame","bell","door","tv","speaker","gamepad","leaf"],
+  scene:  ["party","moon","sun","sunrise","leaf","zap","star","target","heart","gift","wine","cake","snowflake","cloud","music","film","coffee","flame","plug","waves"],
+};
+function iconKeysFor(scope){
+  const cat = ICON_CATS[scope];
+  if(!cat) return ICON_KEYS;
+  return [...cat, ...ICON_KEYS.filter(k=>!cat.includes(k))];
+}
+
+// ---- UI glyphs (line style, match source icons) -------------------------
+const UI = {
+  power:`<svg viewBox="0 0 24 24" ${PA}><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`,
+  volume:`<svg viewBox="0 0 24 24" ${PA}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`,
+  volumeX:`<svg viewBox="0 0 24 24" ${PA}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`,
+  trash:`<svg viewBox="0 0 24 24" ${PA}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
+  check:`<svg viewBox="0 0 24 24" ${PA}><polyline points="20 6 9 17 4 12"/></svg>`,
+  alert:`<svg viewBox="0 0 24 24" ${PA}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  save:`<svg viewBox="0 0 24 24" ${PA}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
+  lock:`<svg viewBox="0 0 24 24" ${PA}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  eye:`<svg viewBox="0 0 24 24" ${PA}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff:`<svg viewBox="0 0 24 24" ${PA}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+  dots:`<svg viewBox="0 0 24 24" ${PA}><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>`,
+  pencil:`<svg viewBox="0 0 24 24" ${PA}><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  image:`<svg viewBox="0 0 24 24" ${PA}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>`,
+  x:`<svg viewBox="0 0 24 24" ${PA}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+};
+const ui = k => UI[k] || "";
+
+// ---- State (server-backed) ----------------------------------------------
+const SRC_DEFAULTS = ["Source 1","Source 2","Source 3","Source 4","Source 5","Source 6"];
+const ICON_DEFAULTS = ["music","tv","radio","airplay","bluetooth","disc"];
+const DEFAULT_TITLE = "Amp Control";
+const defaultConfig = () => ({ title:DEFAULT_TITLE, zoneNames:{}, sourceNames:SRC_DEFAULTS.slice(), sourceIcons:ICON_DEFAULTS.slice(), presets:[], activeScene:null, disabledZones:[], disabledSources:[], zoneIcons:{}, settingsPinSet:false });
+const zoneDisabled = id => (config.disabledZones||[]).includes(id);
+const srcDisabled = si => (config.disabledSources||[]).includes(si); // si is 0-based
+const zoneIcon = id => (config.zoneIcons||{})[id] || "speaker";
+const LS = (k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } };
+
+let config = defaultConfig();
+let ampCount = 1;
+let zoneOrder = buildOrder(1);
+let lastZones = [];
+let lastStruct = "";
+let introDone = false;
+let zoneState = {};   // zid -> latest zone object (server truth + optimistic)
+let pending = {};     // zid -> { body, until } unconfirmed optimistic change
+let cardEls = {};     // zid -> card element, for in-place patching
+let tmpIcons = config.sourceIcons.slice();
+let tmpZoneIcons = {};
+let tmpDisabledZones = [];
+let tmpDisabledSources = [];
+let settingsUnlocked = false;  // session-only gate for PIN-protected Settings
+let sessionPin = null;         // PIN entered this session, sent to authorize protected writes
+let settingsDirty = false;     // unsaved edits in the Settings view
+let forceLeaveSettings = false; // bypass the discard guard (save/cancel)
+let editingScene = null;       // id of the scene being live-edited in the Mixer
+const markSettingsDirty = () => { settingsDirty = true; };
+
+function buildOrder(n){ const a=[]; for(let amp=1;amp<=n;amp++) for(let z=1;z<=6;z++) a.push(`${amp}${z}`); return a; }
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const zIndex = zid => zoneOrder.indexOf(zid);
+const zName = zid => config.zoneNames[zid] || ("Zone " + (zIndex(zid)+1));
+function applyTitle(){ document.getElementById("appTitle").textContent = config.title; document.title = config.title; }
+
+async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok) throw new Error(r.status); return r.json(); }
+const postZone = (zid, body) => api(`/api/zones/${zid}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+// The PIN is never held client-side, so we strip it (and the server-only
+// settingsPinSet flag) from normal saves; the session PIN, if any, authorizes
+// protected-key changes via header. PIN changes go through setPin/clearPin.
+function cfgHeaders(){ const h={"Content-Type":"application/json"}; if(sessionPin) h["X-Settings-Pin"]=sessionPin; return h; }
+function saveConfig(){
+  const { settingsPin, settingsPinSet, ...body } = config;
+  return fetch("/api/config", {method:"PUT", headers:cfgHeaders(), body:JSON.stringify(body)}).catch(()=>{});
+}
+
+async function loadConfig(){
+  try{ config = Object.assign(defaultConfig(), await api("/api/config")); }
+  catch{ config = defaultConfig(); }
+  migrateLocal();
+  applyTitle();
+}
+// One-time lift of any pre-existing per-device settings onto the server.
+function migrateLocal(){
+  let ch=false;
+  const lz=LS("zoneNames",null);
+  if(lz && typeof lz==="object" && !Object.keys(config.zoneNames).length && Object.keys(lz).length){ config.zoneNames=lz; ch=true; }
+  const ls=LS("sourceNames",null);
+  if(Array.isArray(ls) && JSON.stringify(config.sourceNames)===JSON.stringify(SRC_DEFAULTS)){ config.sourceNames=ls; ch=true; }
+  const li=LS("sourceIcons",null);
+  if(Array.isArray(li) && JSON.stringify(config.sourceIcons)===JSON.stringify(ICON_DEFAULTS)){ config.sourceIcons=li; ch=true; }
+  const lp=LS("presets",null);
+  if(Array.isArray(lp) && lp.length && !config.presets.length){ config.presets=lp; ch=true; }
+  const lt=localStorage.getItem("appTitle");
+  if(lt && config.title===DEFAULT_TITLE){ config.title=lt; ch=true; }
+  if(ch){ saveConfig(); ["zoneNames","sourceNames","sourceIcons","presets","appTitle"].forEach(k=>localStorage.removeItem(k)); }
+}
+
+// Balance is 0-20 with 10 = center; show the offset from center as L/R.
+const balFmt = v => { const d=v-10; return d===0 ? "Center" : (d<0 ? "L "+(-d) : "R "+d); };
+// Slider readout: balance as L/R, volume scaled out of 38, everything else raw.
+const fmtVal = (act,v) => act==="balance" ? balFmt(v) : act==="volume" ? v+"/38" : String(v);
+function paintRange(r){
+  const min=+r.min, max=+r.max, pct=((+r.value-min)/(max-min))*100;
+  if(r.dataset.act==="balance"){
+    const lo=Math.min(50,pct), hi=Math.max(50,pct);
+    // top layer = center detent tick; bottom layer = fill from center to thumb
+    r.style.background =
+      `linear-gradient(90deg, transparent calc(50% - 1px), var(--muted) calc(50% - 1px), var(--muted) calc(50% + 1px), transparent calc(50% + 1px)),`+
+      `linear-gradient(90deg, var(--track) ${lo}%, var(--primary) ${lo}%, var(--primary-soft) ${hi}%, var(--track) ${hi}%)`;
+    return;
+  }
+  r.style.background = `linear-gradient(90deg, var(--primary) 0%, var(--primary-soft) ${pct}%, var(--track) ${pct}%, var(--track) 100%)`;
+}
+function fmtUptime(s){ if(s==null) return "—"; const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); if(d) return `${d}d ${h}h`; if(h) return `${h}h ${m}m`; return `${m}m`; }
+function sceneName(){ const p=config.presets.find(p=>p.id===config.activeScene); return p?p.name:"Custom"; }
+
+// ---- Counts, reconciliation, toast --------------------------------------
+const activeCount = () => zoneOrder.reduce((n,id)=> n + (zoneState[id] && zoneState[id].pr==="01" && !zoneDisabled(id) ? 1 : 0), 0);
+function updateCounts(){
+  const total = zoneOrder.filter(id=>zoneState[id] && !zoneDisabled(id)).length;
+  const a = activeCount();
+  document.getElementById("dashSub").textContent = `${a} of ${total||0} zones on · scene: ${sceneName()}`;
+  const badge=document.getElementById("badge");
+  if(badge.classList.contains("ok")) document.getElementById("badgeText").textContent = `${a} active`;
+  const ao=document.getElementById("allOff");
+  ao.disabled = a===0;            // nothing to turn off
+  ao.classList.toggle("live", a>0);
+}
+// Does a freshly-polled zone already reflect the optimistic change we sent?
+function serverMatches(sz, body){
+  if('power' in body && sz.pr !== (body.power?"01":"00")) return false;
+  if('mute' in body && sz.mu !== (body.mute?"01":"00")) return false;
+  if('source' in body && parseInt(sz.ch,10)!==body.source) return false;
+  if('volume' in body && parseInt(sz.vo,10)!==body.volume) return false;
+  if('bass' in body && parseInt(sz.bs,10)!==body.bass) return false;
+  if('treble' in body && parseInt(sz.tr,10)!==body.treble) return false;
+  if('balance' in body && parseInt(sz.bl,10)!==body.balance) return false;
+  return true;
+}
+let toastTimer=null;
+function toast(msg){
+  const t=document.getElementById("toast");
+  t.querySelector(".msg").textContent=msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"), 3500);
+}
+
+// ---- Poll & render -------------------------------------------------------
+async function poll(){
+  const badge=document.getElementById("badge"), bt=document.getElementById("badgeText");
+  try{
+    const h = await api("/api/health");
+    if(h.ampCount && h.ampCount!==ampCount){ ampCount=h.ampCount; zoneOrder=buildOrder(ampCount); }
+    const zones = await api("/api/zones");
+    renderZones(zones, h);
+    if(h.connected && h.zonesKnown>0){ badge.className="badge ok"; }
+    else if(h.connected){ badge.className="badge bad"; bt.textContent="no reply"; }
+    else { badge.className="badge bad"; bt.textContent="offline"; }
+    updateCounts();
+    document.getElementById("hConn").textContent = h.connected ? "Online" : "Disconnected";
+    document.getElementById("hZones").textContent = h.zonesKnown;
+    document.getElementById("hRx").textContent = h.secondsSinceRx==null ? "—" : `${h.secondsSinceRx}s ago`;
+    document.getElementById("hUp").textContent = fmtUptime(h.uptimeSec);
+    document.getElementById("hwRef").innerHTML =
+      `Monoprice MPR-6ZHMAUT · RS-232 ${h.baud||9600} 8N1<br>Device ${esc(h.device||"—")} · ${ampCount} amp(s)<br>${location.host}`;
+  }catch(e){ badge.className="badge bad"; bt.textContent="unreachable"; }
+}
+
+function renderZones(zones, h){
+  const grid=document.getElementById("grid"), empty=document.getElementById("empty");
+  if(!zones.length){
+    grid.innerHTML=""; cardEls={}; lastStruct=""; empty.style.display="block";
+    empty.textContent = h && h.connected
+      ? "Serial port is open but the amp isn't replying. Check the cabling (straight-through, no null-modem)."
+      : "Waiting for the serial connection…";
+    return;
+  }
+  empty.style.display="none";
+  // Reconcile server truth into zoneState, but keep any unconfirmed optimistic
+  // change until the amp catches up (or the change times out).
+  const order=[];
+  zones.forEach(sz=>{
+    const zid=sz.zone; order.push(zid);
+    const p=pending[zid];
+    if(p && Date.now()<=p.until && !serverMatches(sz,p.body)){
+      if(!zoneState[zid]) zoneState[zid]=sz;   // seed but keep optimistic
+    }else{
+      if(p) delete pending[zid];
+      zoneState[zid]=sz;
+    }
+  });
+  const vis = order.filter(id=>!zoneDisabled(id));
+  lastZones = vis.map(id=>zoneState[id]);
+  if(!vis.length){
+    grid.innerHTML=""; cardEls={}; lastStruct=""; empty.style.display="block";
+    empty.textContent = "All zones are hidden. Enable some in Settings.";
+    return;
+  }
+  // Rebuild only when the structure changes (zone set, editable labels/icons, or
+  // which zones/sources are enabled); otherwise patch in place so toggles animate.
+  const struct = vis.join(",")+"|"+JSON.stringify(config.zoneNames)+JSON.stringify(config.zoneIcons)+JSON.stringify(config.sourceNames)+JSON.stringify(config.sourceIcons)+JSON.stringify(config.disabledSources);
+  if(struct!==lastStruct){
+    if(document.activeElement && document.activeElement.type==="range") return; // don't yank a slider mid-drag
+    lastStruct=struct;
+    grid.innerHTML=""; cardEls={};
+    vis.forEach(id=>{ const el=zoneCard(id); cardEls[id]=el; grid.appendChild(el); });
+    grid.querySelectorAll('input[type=range]').forEach(paintRange);
+    if(!introDone){ introDone=true; grid.classList.add("intro"); setTimeout(()=>grid.classList.remove("intro"), 700); }
+  }else{
+    vis.forEach(id=>{ if(cardEls[id]) patchCard(cardEls[id], zoneState[id]); });
+  }
+}
+
+const miniHtml = z => z.pr==="01"
+  ? `<button class="btn ${z.mu==="01"?"danger":""}" data-act="mute" style="flex:1">${z.mu==="01"?ui("volumeX")+"Muted":ui("volume")+"Mute zone"}</button>`
+  : `<button class="btn" data-act="poweron" style="flex:1">${ui("power")}Power on</button>`;
+const miniState = z => z.pr==="01" ? "on-"+z.mu : "off";
+
+function zoneCard(zid){
+  const z = zoneState[zid];
+  const on = z.pr==="01", idx = zIndex(zid);
+  const el = document.createElement("div");
+  el.className = "zone" + (on?"":" off");
+  el.dataset.zid = zid;
+  el.style.animationDelay = Math.min(Math.max(idx,0),7)*45 + "ms";
+  el.innerHTML = `
+    <div class="ztop">
+      <div class="zicon" aria-hidden="true">${svg(zoneIcon(zid))}</div>
+      <div class="zmeta">
+        <span class="tag caps">Zone ${String(idx+1).padStart(2,"0")}</span>
+        <span class="nm">${esc(zName(zid))}</span>
+        <span class="st ${on?"on":""}"><i></i>${on?"Active":"Standby"}</span>
+      </div>
+      <div class="sw ${on?"on":""}" data-act="power" role="switch" aria-checked="${on}" aria-label="Power ${esc(zName(zid))}" tabindex="0"></div>
+    </div>
+    <div class="ctl${on?"":" locked"}">
+      <div class="lbl"><span>Volume</span><b>${parseInt(z.vo,10)}/38</b></div>
+      <input type="range" min="0" max="38" value="${parseInt(z.vo,10)}" data-act="volume">
+    </div>
+    <div class="ctl${on?"":" locked"}">
+      <div class="lbl"><span>Source</span></div>
+      <div class="srcs">${config.sourceNames.map((s,si)=> srcDisabled(si) ? "" :
+        `<div class="src ${parseInt(z.ch,10)===si+1?"active":""}" data-act="source" data-val="${si+1}">${svg(config.sourceIcons[si])}<span>${esc(s)}</span></div>`
+      ).join("")}</div>
+    </div>
+    <div class="mini" data-state="${miniState(z)}">${miniHtml(z)}</div>
+    <details${on?"":" style='display:none'"}>
+      <summary>Sound</summary>
+      <div class="adv">
+        <div class="lbl"><span>Bass</span><b>${parseInt(z.bs,10)}</b></div>
+        <input type="range" min="0" max="14" value="${parseInt(z.bs,10)}" data-act="bass">
+        <div class="lbl"><span>Treble</span><b>${parseInt(z.tr,10)}</b></div>
+        <input type="range" min="0" max="14" value="${parseInt(z.tr,10)}" data-act="treble">
+        <div class="lbl"><span>Balance</span><b>${balFmt(parseInt(z.bl,10))}</b></div>
+        <input type="range" min="0" max="20" value="${parseInt(z.bl,10)}" data-act="balance">
+        <div class="balcap"><span>L</span><span>R</span></div>
+      </div>
+    </details>`;
+
+  // Delegated handlers survive in-place patching (the .mini button is recreated).
+  el.addEventListener("click", e=>{
+    const t=e.target.closest("[data-act]"); if(!t || t.matches("input")) return;
+    const cur=zoneState[zid], act=t.dataset.act;
+    if(act==="power")        applyOptimistic(zid,{power: cur.pr==="01"?0:1});
+    else if(act==="poweron") applyOptimistic(zid,{power:1});
+    else if(act==="mute")    applyOptimistic(zid,{mute: cur.mu==="01"?0:1});
+    else if(act==="source")  applyOptimistic(zid,{source:+t.dataset.val});
+  });
+  el.addEventListener("keydown", e=>{
+    if((e.key==="Enter"||e.key===" ") && e.target.classList.contains("sw")){
+      e.preventDefault();
+      applyOptimistic(zid,{power: zoneState[zid].pr==="01"?0:1});
+    }
+  });
+  el.addEventListener("input", e=>{
+    const r=e.target; if(!r.matches('input[type=range]')) return;
+    r.previousElementSibling.lastElementChild.textContent = fmtVal(r.dataset.act,+r.value);
+    paintRange(r);
+  });
+  el.addEventListener("change", e=>{
+    const r=e.target; if(!r.matches('input[type=range]')) return;
+    applyOptimistic(zid,{[r.dataset.act]:parseInt(r.value,10)});
+  });
+  return el;
+}
+
+// Update an existing card to reflect zone z, without recreating it (so the
+// switch slide and dim/brighten transitions actually play).
+function patchCard(el, z){
+  const on = z.pr==="01";
+  el.classList.toggle("off", !on);
+  const swEl=el.querySelector(".sw"); swEl.classList.toggle("on", on); swEl.setAttribute("aria-checked", on);
+  const st=el.querySelector(".st"); st.classList.toggle("on", on); st.innerHTML=`<i></i>${on?"Active":"Standby"}`;
+  el.querySelectorAll(".ctl").forEach(c=>c.classList.toggle("locked", !on));
+  const setRange=(act,field)=>{
+    const r=el.querySelector(`[data-act="${act}"]`);
+    if(r && document.activeElement!==r){
+      const v=parseInt(z[field],10);
+      r.value=v;
+      r.previousElementSibling.lastElementChild.textContent = fmtVal(act,v);
+      paintRange(r);
+    }
+  };
+  setRange("volume","vo"); setRange("bass","bs"); setRange("treble","tr"); setRange("balance","bl");
+  el.querySelectorAll('[data-act="source"]').forEach(b=> b.classList.toggle("active", +b.dataset.val===parseInt(z.ch,10)));
+  const mini=el.querySelector(".mini");
+  if(mini.dataset.state!==miniState(z)){ mini.dataset.state=miniState(z); mini.innerHTML=miniHtml(z); }
+  el.querySelector("details").style.display = on ? "" : "none";
+}
+
+// Show the change immediately, send it, and revert + warn if the amp rejects it.
+function applyOptimistic(zid, body){
+  const prev={...zoneState[zid]}, next={...prev};
+  if('power' in body)   next.pr=body.power?"01":"00";
+  if('mute' in body)    next.mu=body.mute?"01":"00";
+  if('source' in body)  next.ch=String(body.source).padStart(2,"0");
+  if('volume' in body)  next.vo=String(body.volume).padStart(2,"0");
+  if('bass' in body)    next.bs=String(body.bass).padStart(2,"0");
+  if('treble' in body)  next.tr=String(body.treble).padStart(2,"0");
+  if('balance' in body) next.bl=String(body.balance).padStart(2,"0");
+  zoneState[zid]=next;
+  pending[zid]={ body:Object.assign((pending[zid]&&pending[zid].body)||{}, body), until:Date.now()+4000 };
+  if(cardEls[zid]) patchCard(cardEls[zid], next);
+  updateCounts();
+  clearScene();
+  postZone(zid, body).catch(()=>{
+    zoneState[zid]=prev; delete pending[zid];
+    if(cardEls[zid]) patchCard(cardEls[zid], prev);
+    updateCounts();
+    toast(`Couldn't reach the amp — ${zName(zid)} reverted`);
+  });
+}
+
+// ---- Scene tracking ------------------------------------------------------
+function clearScene(){ if(config.activeScene){ config.activeScene=null; saveConfig(); } }
+
+// ---- Presets -------------------------------------------------------------
+function renderPresets(){
+  const list=document.getElementById("presetList");
+  if(!config.presets.length){
+    list.innerHTML = `<div class="empty">No scenes yet. Dial in your zones, then save them as a scene.</div>`;
+    return;
+  }
+  const total=zoneOrder.filter(id=>!zoneDisabled(id)).length;
+  list.innerHTML = config.presets.map(p=>{
+    const ids=Object.keys(p.zones).filter(id=>!zoneDisabled(id));
+    const chips=ids.slice(0,4).map(id=>`<span class="chip">${esc(zName(id))}</span>`).join("")
+      + (ids.length>4?`<span class="chip">+${ids.length-4} more</span>`:"");
+    const active=p.id===config.activeScene;
+    return `<div class="preset ${active?"active":""}">
+      <div class="ptop">
+        <div class="picon-id" aria-hidden="true">${svg(p.icon||"star")}</div>
+        <div class="pmeta">
+          <div class="ptag caps">Scene</div>
+          <div class="pname">${esc(p.name)}</div>
+        </div>
+        ${active?`<span class="ppill">${ui("check")}Active</span>`:""}
+        <button class="pmenu" data-menu="${p.id}" title="Scene options" aria-label="Options for ${esc(p.name)}">${ui("dots")}</button>
+      </div>
+      <div class="paff">Affected zones · ${ids.length}/${total}</div>
+      <div class="chips">${chips}</div>
+      <div class="prow">
+        ${active ? `<button class="btn block" disabled>Already active</button>`
+                 : `<button class="btn primary block" data-apply="${p.id}">Activate scene</button>`}
+        <button class="btn" data-edit="${p.id}" title="Edit this scene live">${ui("pencil")}Edit</button>
+      </div>
+    </div>`;
+  }).join("");
+  list.querySelectorAll('[data-apply]').forEach(b => b.onclick=()=>{
+    b.disabled=true; b.textContent="Activating…";
+    b.closest(".preset").classList.add("applying");
+    applyPreset(b.dataset.apply);
+  });
+  list.querySelectorAll('[data-edit]').forEach(b => b.onclick=()=>editScene(b.dataset.edit));
+  list.querySelectorAll('[data-menu]').forEach(b => b.onclick=()=>openSceneMenu(b.dataset.menu));
+}
+
+async function applyPreset(id){
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  for(const [zid,c] of Object.entries(p.zones)){
+    if(zoneDisabled(zid)) continue;
+    if(c.power){
+      await postZone(zid,{power:1});
+      await postZone(zid,{volume:c.volume,source:c.source,mute:c.mute,bass:c.bass,treble:c.treble,balance:c.balance});
+    } else { await postZone(zid,{power:0}); }
+  }
+  config.activeScene=id; saveConfig();
+  renderPresets(); setTimeout(poll,700);
+}
+
+async function deletePreset(id){
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  const ok=await openConfirm("Delete scene?", `“${p.name}” will be removed. This can't be undone.`, "Delete");
+  if(!ok) return;
+  config.presets=config.presets.filter(p=>p.id!==id);
+  if(config.activeScene===id) config.activeScene=null;
+  saveConfig(); renderPresets();
+}
+
+function captureZones(){
+  const zones={};
+  lastZones.forEach(z=>{ zones[z.zone]={power:z.pr==="01"?1:0,volume:+z.vo,source:+z.ch,mute:z.mu==="01"?1:0,bass:+z.bs,treble:+z.tr,balance:+z.bl}; });
+  return zones;
+}
+
+async function renameScene(id){
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  const name=await openPrompt("Rename scene", p.name); if(name==null) return;
+  const v=name.trim(); if(!v) return;
+  p.name=v; saveConfig(); renderPresets(); renderEditBar();
+}
+
+// ---- Scene options menu --------------------------------------------------
+let menuSceneId=null;
+function openSceneMenu(id){
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  menuSceneId=id;
+  document.getElementById("sceneMenuTitle").textContent=p.name;
+  openOverlay("sceneMenuOverlay");
+}
+function closeSceneMenu(){ closeOverlay("sceneMenuOverlay"); menuSceneId=null; }
+
+// ---- Live-edit a scene in the Mixer --------------------------------------
+async function editScene(id){
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  editingScene=id;
+  if(config.activeScene!==id) await applyPreset(id);  // activate so the Mixer reflects it
+  showView("mixer");
+  renderEditBar();
+  toast(`Editing “${p.name}” — adjust zones, then save`);
+}
+function saveEdit(){
+  const p=config.presets.find(x=>x.id===editingScene); if(!p){ editingScene=null; renderEditBar(); return; }
+  if(!lastZones.length){ toast("No zones detected yet."); return; }
+  p.zones=captureZones(); config.activeScene=p.id; saveConfig();
+  toast(`Saved “${p.name}”`);
+  editingScene=null; renderEditBar(); showView("presets");
+}
+function cancelEdit(){
+  editingScene=null; renderEditBar(); toast("Edit canceled"); showView("presets");
+}
+function renderEditBar(){
+  const bar=document.getElementById("editBar");
+  const onMixer=document.getElementById("view-mixer").classList.contains("active");
+  const p=editingScene ? config.presets.find(x=>x.id===editingScene) : null;
+  const show=!!(p && onMixer);
+  bar.classList.toggle("show", show);
+  document.body.classList.toggle("editing", show);
+  if(p) document.getElementById("editText").innerHTML=`Editing “${esc(p.name)}”<small>Adjust any zone, then save</small>`;
+}
+
+async function saveCurrentAsPreset(){
+  if(!lastZones.length){ toast("No zones detected yet."); return; }
+  const name=await openPrompt("Name this scene",""); if(!name) return;
+  config.presets.push({id:"p"+Date.now(),name,zones:captureZones(),icon:"star"});
+  saveConfig(); renderPresets(); showView("presets");
+}
+
+// ---- Settings ------------------------------------------------------------
+function populateSettings(){
+  settingsDirty = false;
+  tmpIcons = config.sourceIcons.slice();
+  tmpZoneIcons = {...(config.zoneIcons||{})};
+  tmpDisabledZones = (config.disabledZones||[]).slice();
+  tmpDisabledSources = (config.disabledSources||[]).slice();
+  document.getElementById("setTitle").value = config.title;
+  const zf=document.getElementById("zoneFields");
+  zf.innerHTML = zoneOrder.map((zid,i)=>{
+    const on=!tmpDisabledZones.includes(zid);
+    return `<div class="setrow${on?"":" off"}"><span class="ix num">${String(i+1).padStart(2,"0")}</span>`
+    + `<button class="iconpick" data-zpick="${zid}" aria-label="Choose icon for zone ${i+1}">${svg(zoneIcon(zid))}</button>`
+    + `<input class="input" data-zname="${zid}" value="${esc(config.zoneNames[zid]||"")}" placeholder="Zone ${i+1}">`
+    + `<button class="visbtn ${on?"":"hidden"}" data-ztoggle="${zid}" title="${on?"Visible in Mixer":"Hidden from Mixer"}" aria-label="Toggle visibility of zone ${i+1}">${on?ui("eye"):ui("eyeOff")}</button></div>`;
+  }).join("");
+  zf.querySelectorAll('[data-zpick]').forEach(b => b.onclick=()=>{
+    const id=b.dataset.zpick;
+    openIconPicker(ico=>{ tmpZoneIcons[id]=ico; b.innerHTML=svg(ico); markSettingsDirty(); }, "zone");
+  });
+  zf.querySelectorAll('[data-ztoggle]').forEach(b => b.onclick=()=>{
+    const id=b.dataset.ztoggle, k=tmpDisabledZones.indexOf(id);
+    const willShow = k>=0;
+    if(willShow){ tmpDisabledZones.splice(k,1); } else { tmpDisabledZones.push(id); }
+    b.classList.toggle("hidden", !willShow);
+    b.innerHTML = willShow ? ui("eye") : ui("eyeOff");
+    b.title = willShow ? "Visible in Mixer" : "Hidden from Mixer";
+    b.closest(".setrow").classList.toggle("off", !willShow);
+    markSettingsDirty();
+  });
+  const sf=document.getElementById("srcFields");
+  sf.innerHTML = config.sourceNames.map((s,i)=>{
+    const on=!tmpDisabledSources.includes(i);
+    return `<div class="setrow${on?"":" off"}"><span class="ix num">${String(i+1).padStart(2,"0")}</span>`
+    + `<button class="iconpick" data-pick="${i}" aria-label="Choose icon for source ${i+1}">${svg(tmpIcons[i])}</button>`
+    + `<input class="input" data-sidx="${i}" value="${esc(s)}" placeholder="Source ${i+1}">`
+    + `<button class="visbtn ${on?"":"hidden"}" data-stoggle="${i}" title="${on?"Visible in Mixer":"Hidden from Mixer"}" aria-label="Toggle visibility of source ${i+1}">${on?ui("eye"):ui("eyeOff")}</button></div>`;
+  }).join("");
+  sf.querySelectorAll('[data-pick]').forEach(b => b.onclick=()=>{
+    const i=+b.dataset.pick;
+    openIconPicker(ico=>{ tmpIcons[i]=ico; document.querySelector(`[data-pick="${i}"]`).innerHTML=svg(ico); markSettingsDirty(); }, "source");
+  });
+  sf.querySelectorAll('[data-stoggle]').forEach(b => b.onclick=()=>{
+    const i=+b.dataset.stoggle, k=tmpDisabledSources.indexOf(i);
+    const willShow = k>=0;
+    if(willShow){ tmpDisabledSources.splice(k,1); } else { tmpDisabledSources.push(i); }
+    b.classList.toggle("hidden", !willShow);
+    b.innerHTML = willShow ? ui("eye") : ui("eyeOff");
+    b.title = willShow ? "Visible in Mixer" : "Hidden from Mixer";
+    b.closest(".setrow").classList.toggle("off", !willShow);
+    markSettingsDirty();
+  });
+  renderPinStatus();
+}
+
+function renderPinStatus(){
+  const set = !!config.settingsPinSet;
+  document.getElementById("pinStatus").textContent = set
+    ? "A PIN is required to open Settings. This prevents accidental edits — it isn't strong security."
+    : "Settings are open to anyone on the network. Set a PIN to prevent accidental changes.";
+  document.getElementById("pinSet").textContent = set ? "Change PIN" : "Set PIN";
+  document.getElementById("pinClear").style.display = set ? "" : "none";
+}
+
+function saveSettings(){
+  config.title = document.getElementById("setTitle").value.trim() || DEFAULT_TITLE;
+  document.querySelectorAll('[data-zname]').forEach(inp=>{
+    const v=inp.value.trim(); if(v) config.zoneNames[inp.dataset.zname]=v; else delete config.zoneNames[inp.dataset.zname];
+  });
+  document.querySelectorAll('[data-sidx]').forEach(inp=>{ const i=+inp.dataset.sidx; config.sourceNames[i]=inp.value.trim()||SRC_DEFAULTS[i]; });
+  config.sourceIcons = tmpIcons.slice();
+  config.zoneIcons = {...tmpZoneIcons};
+  config.disabledZones = tmpDisabledZones.slice();
+  config.disabledSources = tmpDisabledSources.slice();
+  // Hiding a zone also powers it off so it isn't left playing out of sight.
+  config.disabledZones.forEach(id=>{ if(zoneState[id] && zoneState[id].pr==="01") postZone(id,{power:0}); });
+  applyTitle(); saveConfig(); lastStruct=""; poll(); forceLeaveSettings=true; showView("mixer");
+}
+
+// ---- Icon picker / prompt ------------------------------------------------
+function openIconPicker(onPick, scope){
+  const g=document.getElementById("iconsGrid");
+  g.innerHTML = iconKeysFor(scope).map(k=>`<button class="icopt" data-ico="${k}" aria-label="${k}">${svg(k)}</button>`).join("");
+  g.querySelectorAll('[data-ico]').forEach(b => b.onclick=()=>{ onPick(b.dataset.ico); closeOverlay("iconOverlay"); });
+  openOverlay("iconOverlay");
+}
+let promptResolve=null;
+function openPrompt(title,val,opts){
+  opts=opts||{};
+  document.getElementById("promptTitle").textContent=title;
+  const inp=document.getElementById("promptInput"); inp.value=val||"";
+  inp.type = opts.password ? "password" : "text";
+  if(opts.password){ inp.setAttribute("inputmode","numeric"); inp.autocomplete="off"; } else inp.removeAttribute("inputmode");
+  openOverlay("promptOverlay"); setTimeout(()=>inp.focus(),50);
+  return new Promise(res=>{ promptResolve=res; });
+}
+function closePrompt(val){ closeOverlay("promptOverlay"); if(promptResolve){ promptResolve(val); promptResolve=null; } }
+
+let confirmResolve=null;
+function openConfirm(title,msg,okLabel){
+  document.getElementById("confirmTitle").textContent=title;
+  document.getElementById("confirmMsg").textContent=msg;
+  const ok=document.getElementById("confirmOk");
+  ok.textContent=okLabel||"Confirm";
+  ok.className = "btn " + (/(delete|remove)/i.test(okLabel||"") ? "danger" : "primary");
+  openOverlay("confirmOverlay");
+  return new Promise(res=>{ confirmResolve=res; });
+}
+function closeConfirm(val){ closeOverlay("confirmOverlay"); if(confirmResolve){ confirmResolve(val); confirmResolve=null; } }
+
+function openOverlay(id){ document.getElementById(id).classList.add("show"); }
+function closeOverlay(id){ document.getElementById(id).classList.remove("show"); }
+
+// ---- Views ---------------------------------------------------------------
+async function showView(name){
+  const leavingSettings = document.getElementById("view-settings").classList.contains("active") && name!=="settings";
+  if(leavingSettings && settingsDirty && !forceLeaveSettings){
+    const ok=await openConfirm("Discard changes?","Your unsaved settings changes will be lost.","Discard");
+    if(!ok) return;
+  }
+  forceLeaveSettings = false;
+  if(name==="settings" && config.settingsPinSet && !settingsUnlocked){ promptPin(); return; }
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active", v.id==="view-"+name));
+  document.querySelectorAll(".tab,.nav").forEach(t=>t.classList.toggle("active", t.dataset.view===name));
+  if(name==="settings") populateSettings();
+  if(name==="presets") renderPresets();
+  renderEditBar();
+  window.scrollTo(0,0);
+}
+async function promptPin(){
+  const v=await openPrompt("Enter settings PIN","",{password:true});
+  if(v==null) return;
+  let ok=false;
+  try{ ok=(await api("/api/unlock",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:v})})).ok; }catch{}
+  if(ok){ sessionPin=v; settingsUnlocked=true; showView("settings"); }
+  else toast("Incorrect PIN");
+}
+// Changing the PIN is itself protected: the current session PIN (if any)
+// authorizes the write. A fresh PIN is set by the new value once accepted.
+async function setPin(){
+  const v=await openPrompt(config.settingsPinSet?"New settings PIN":"Set a settings PIN","",{password:true});
+  if(v==null) return;
+  const pin=v.trim();
+  if(!pin){ toast("PIN can't be empty"); return; }
+  const r=await fetch("/api/config",{method:"PUT",headers:cfgHeaders(),body:JSON.stringify({settingsPin:pin})});
+  if(!r.ok){ toast("Couldn't save PIN"); return; }
+  sessionPin=pin; settingsUnlocked=true; config.settingsPinSet=true; renderPinStatus();
+  toast("Settings PIN saved");
+}
+async function clearPin(){
+  const ok=await openConfirm("Remove PIN?","Anyone on the network will be able to change settings.","Remove");
+  if(!ok) return;
+  const r=await fetch("/api/config",{method:"PUT",headers:cfgHeaders(),body:JSON.stringify({settingsPin:""})});
+  if(!r.ok){ toast("Couldn't remove PIN"); return; }
+  sessionPin=null; config.settingsPinSet=false; renderPinStatus(); toast("Settings PIN removed");
+}
+document.querySelectorAll(".tab,.nav").forEach(t => t.onclick=()=>showView(t.dataset.view));
+document.getElementById("view-settings").addEventListener("input", markSettingsDirty);
+
+// ---- Wiring --------------------------------------------------------------
+const allOff = () => { lastZones.forEach(z => { if(zoneState[z.zone] && zoneState[z.zone].pr==="01") applyOptimistic(z.zone,{power:0}); }); };
+document.getElementById("allOff").onclick    = allOff;
+document.getElementById("savePreset").onclick= saveCurrentAsPreset;
+document.getElementById("setSave").onclick   = saveSettings;
+document.getElementById("setCancel").onclick = () => { forceLeaveSettings=true; showView("mixer"); };
+document.getElementById("pinSet").onclick    = setPin;
+document.getElementById("pinClear").onclick  = clearPin;
+document.getElementById("promptOk").onclick     = () => closePrompt(document.getElementById("promptInput").value.trim());
+document.getElementById("promptCancel").onclick = () => closePrompt(null);
+document.getElementById("promptInput").addEventListener("keydown", e=>{ if(e.key==="Enter") closePrompt(e.target.value.trim()); });
+document.getElementById("confirmOk").onclick     = () => closeConfirm(true);
+document.getElementById("confirmCancel").onclick = () => closeConfirm(false);
+
+// Scene options menu — labels/icons set once, actions operate on menuSceneId.
+document.getElementById("smRename").innerHTML = ui("pencil")+"Rename";
+document.getElementById("smIcon").innerHTML   = ui("image")+"Change icon";
+document.getElementById("smDelete").innerHTML = ui("trash")+"Delete scene";
+document.getElementById("smCancel").innerHTML = ui("x")+"Cancel";
+document.getElementById("smRename").onclick = () => { const id=menuSceneId; closeSceneMenu(); renameScene(id); };
+document.getElementById("smIcon").onclick   = () => {
+  const id=menuSceneId; closeSceneMenu();
+  const p=config.presets.find(x=>x.id===id); if(!p) return;
+  openIconPicker(ico=>{ p.icon=ico; saveConfig(); renderPresets(); }, "scene");
+};
+document.getElementById("smDelete").onclick = () => { const id=menuSceneId; closeSceneMenu(); deletePreset(id); };
+document.getElementById("smCancel").onclick = () => closeSceneMenu();
+document.getElementById("editSave").onclick   = saveEdit;
+document.getElementById("editCancel").onclick = cancelEdit;
+document.getElementById("badge").onclick       = () => openOverlay("statusOverlay");
+document.getElementById("statusClose").onclick = () => closeOverlay("statusOverlay");
+["iconOverlay","promptOverlay","statusOverlay","confirmOverlay","sceneMenuOverlay"].forEach(id=>{
+  document.getElementById(id).onclick = e => { if(e.target.id===id){
+    if(id==="promptOverlay") closePrompt(null);
+    else if(id==="confirmOverlay") closeConfirm(false);
+    else if(id==="sceneMenuOverlay") closeSceneMenu();
+    else closeOverlay(id);
+  } };
+});
+
+document.querySelector("#toast .ic").innerHTML=ui("alert");
+loadConfig().then(()=>{ renderPresets(); poll(); setInterval(poll, 3000); });
+</script>
+</body>
+</html>
