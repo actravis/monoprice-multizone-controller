@@ -7,9 +7,12 @@
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
+const crypto = require("crypto");
 const express = require("express");
 const { SerialPort } = require("serialport");
 const { ReadlineParser } = require("@serialport/parser-readline");
+// Pure protocol/profile data + helpers (dependency-free, unit-tested in test/).
+const { PROFILES, SOCKET_RE, zoneIdsFor, statusReFor, zoneReFor, attrsFor } = require("./lib/protocol");
 
 // Load a local .env if present so `npm start` and the installed service honor
 // it. Optional: if dotenv isn't installed yet, fall back to ambient env vars.
@@ -28,30 +31,10 @@ if (process.argv.slice(2).includes("--probe")) {
 const DEVICE = process.env.DEVICE || "/dev/cu.usbserial-210";
 
 // ---- Model profiles ------------------------------------------------------
-// Every supported amp speaks the SAME `?`/`<`/`#>` protocol; only these
-// hardware dimensions differ, so a model is pure data, not logic. Pick one
-// with the MODEL env var. Default is monoprice-6 (the original MPR-6ZHMAUT) so
-// existing deploys are unaffected.
-//   zonesPerAmp  number of zones per unit; drives the 11-1N/21-2N/31-3N math
-//   maxAmps      how many units can be linked
-//   sources      number of inputs (protocol "ch" field max)
-//   volMax/toneMax/balMax  inclusive upper bound of each 2-digit field
-//   statusPrefix prefix of a status reply line ("#>")
-//   eol          command line terminator ("\r")
-//
-// Only monoprice-6 has been tested on real hardware. The rest are built from
-// documented specs (openHAB monopriceaudio binding + pyxantech) and are
-// UNVERIFIED — community confirmation welcome. The 70V 31028 is intentionally
-// absent: it uses a different command syntax (logic, not just data), like the
-// Xantech family, so it is out of scope here.
-const BASE_PROFILE = { baud: 9600, statusPrefix: "#>", volMax: 38, toneMax: 14, balMax: 20, eol: "\r" };
-const PROFILES = {
-  "monoprice-6":     { ...BASE_PROFILE, label: "Monoprice MPR-6ZHMAUT (10761), 6-zone", zonesPerAmp: 6, maxAmps: 3, sources: 6 },
-  "monoprice-8":     { ...BASE_PROFILE, label: "Monoprice 44518, 8-zone",               zonesPerAmp: 8, maxAmps: 3, sources: 6 },
-  "monoprice-4":     { ...BASE_PROFILE, label: "Monoprice 44519, 4-zone",               zonesPerAmp: 4, maxAmps: 3, sources: 6 },
-  "monoprice-39261": { ...BASE_PROFILE, label: "Monoprice 39261 passive matrix, 6-zone", zonesPerAmp: 6, maxAmps: 3, sources: 6 },
-  "dayton-dax66":    { ...BASE_PROFILE, label: "Dayton Audio DAX66, 6-zone",            zonesPerAmp: 6, maxAmps: 3, sources: 6 },
-};
+// PROFILES + protocol helpers live in ./lib/protocol (pure, dependency-free,
+// unit-tested). Everything below derives from the MODEL-selected profile; the
+// monoprice-6 default keeps existing deploys unaffected. Only monoprice-6 is
+// hardware-tested — the rest are from documented specs (openHAB + pyxantech).
 const MODEL = PROFILES[process.env.MODEL] ? process.env.MODEL : "monoprice-6";
 if (process.env.MODEL && !PROFILES[process.env.MODEL]) {
   console.error(`[model] unknown MODEL "${process.env.MODEL}"; using ${MODEL}. Known: ${Object.keys(PROFILES).join(", ")}`);
@@ -59,6 +42,12 @@ if (process.env.MODEL && !PROFILES[process.env.MODEL]) {
 const PROFILE = PROFILES[MODEL];
 const EOL = PROFILE.eol;
 console.log(`[model] ${MODEL} — ${PROFILE.label}`);
+// The `<amp><zone>` protocol addresses are single-digit (e.g. 11..36), so a
+// profile with 10+ zones/amp or 10+ amps can't be represented. Guard here so a
+// future profile edit fails loudly instead of silently producing bad zone IDs.
+if (PROFILE.zonesPerAmp > 9 || PROFILE.maxAmps > 9) {
+  console.error(`[model] ${MODEL}: zonesPerAmp/maxAmps > 9 is not representable in the single-digit protocol; zone IDs would be wrong.`);
+}
 
 const BAUD = parseInt(process.env.BAUD || String(PROFILE.baud), 10);
 const HTTP_PORT = parseInt(process.env.PORT || "8080", 10);
@@ -95,33 +84,37 @@ function loadConfig() {
     config = { ...DEFAULT_CONFIG };
   }
 }
-function saveConfig() {
-  try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-  } catch (e) {
-    console.error("[config] save failed:", e.message);
-  }
-}
 loadConfig();
 
-// Attribute metadata: protocol field -> {min,max} and friendly name.
-const ATTRS = {
-  pr: { name: "power", min: 0, max: 1 },
-  mu: { name: "mute", min: 0, max: 1 },
-  dt: { name: "dnd", min: 0, max: 1 },
-  vo: { name: "volume", min: 0, max: PROFILE.volMax },
-  tr: { name: "treble", min: 0, max: PROFILE.toneMax },
-  bs: { name: "bass", min: 0, max: PROFILE.toneMax },
-  bl: { name: "balance", min: 0, max: PROFILE.balMax },
-  ch: { name: "source", min: 1, max: PROFILE.sources },
-  pa: { name: "pa", min: 0, max: 1 },
-};
+// Persistence is debounced + async so a burst of PUTs doesn't block the event
+// loop on synchronous disk writes. A pending write is flushed synchronously on
+// shutdown (see shutdown()) so the last change is never lost.
+let saveTimer = null;
+let savePending = false;
+function saveConfig() {
+  savePending = true;
+  if (!saveTimer) saveTimer = setTimeout(flushConfig, 200);
+}
+function flushConfig() {
+  saveTimer = null;
+  if (!savePending) return;
+  savePending = false;
+  fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), (e) => {
+    if (e) console.error("[config] save failed:", e.message);
+  });
+}
+function flushConfigSync() {
+  if (!savePending) return;
+  savePending = false;
+  try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); }
+  catch (e) { console.error("[config] final save failed:", e.message); }
+}
+
+// Settable attribute metadata for the active profile (protocol code -> meta).
+const ATTRS = attrsFor(PROFILE);
 
 function zoneIds() {
-  const ids = [];
-  for (let amp = 1; amp <= AMP_COUNT; amp++)
-    for (let z = 1; z <= PROFILE.zonesPerAmp; z++) ids.push(`${amp}${z}`);
-  return ids;
+  return zoneIdsFor(PROFILE, AMP_COUNT);
 }
 
 // ---- Serial layer --------------------------------------------------------
@@ -136,18 +129,26 @@ const state = {
 // serial-over-IP bridge URL (socket://host:port, also tcp://). node-serialport
 // has no native socket transport, but a net.Socket is a duplex stream just like
 // a SerialPort, so the parser pipe and write queue below are transport-agnostic.
-const SOCKET_RE = /^(?:socket|tcp):\/\/(\[[^\]]+\]|[^:/]+):(\d+)\/?$/i;
 const isNetworkDevice = SOCKET_RE.test(DEVICE);
 
 let port = null;
-let socketOpen = false; // tracks readiness for the net.Socket transport
+let serialOpen = false; // readiness for the SerialPort transport
+let socketOpen = false; // readiness for the net.Socket transport
 let connecting = false; // gate so the reconnect interval doesn't stack opens
 let writeQueue = [];
 let draining = false;
 
+// A single readiness flag per transport (rather than trusting port.isOpen)
+// means an `error` event that leaves the handle half-open still reads as "not
+// ready", so the reconnect interval takes over instead of polling a dead link.
 function portReady() {
-  return !!port && (isNetworkDevice ? socketOpen : port.isOpen);
+  return !!port && (isNetworkDevice ? socketOpen : serialOpen);
 }
+
+// On disconnect, drop anything still queued: a queued volume/source change is
+// stale by the time the link returns, and replaying it minutes later would be
+// surprising. State re-syncs from the amp via pollAll() on reconnect.
+function clearQueue() { writeQueue = []; }
 
 function enqueue(cmd) {
   writeQueue.push(cmd);
@@ -173,9 +174,7 @@ function drain() {
 }
 
 // status line: <statusPrefix> + 11 two-digit fields
-const STATUS_RE = new RegExp(
-  PROFILE.statusPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d{2})".repeat(11)
-);
+const STATUS_RE = statusReFor(PROFILE.statusPrefix);
 
 function handleLine(line) {
   state.lastRx = Date.now();
@@ -194,6 +193,11 @@ function handleLine(line) {
   };
 }
 
+// Both transports are duplex streams, so line parsing is identical.
+function attachParser(stream) {
+  stream.pipe(new ReadlineParser({ delimiter: "\n", encoding: "latin1" })).on("data", handleLine);
+}
+
 function openPort() {
   connecting = true;
   if (isNetworkDevice) openSocket();
@@ -201,35 +205,41 @@ function openPort() {
 }
 
 function openSerial() {
+  serialOpen = false;
   port = new SerialPort(
     { path: DEVICE, baudRate: BAUD, dataBits: 8, parity: "none", stopBits: 1, rtscts: false, autoOpen: false },
     () => {}
   );
-  const parser = port.pipe(new ReadlineParser({ delimiter: "\n", encoding: "latin1" }));
-  parser.on("data", handleLine);
+  attachParser(port);
 
   port.on("open", () => {
     connecting = false;
+    serialOpen = true;
     state.connected = true;
     state.lastError = null;
     console.log(`[serial] open ${DEVICE} @ ${BAUD}`);
     try { port.set({ dtr: true, rts: true }, () => {}); } catch {}
     pollAll();
   });
-  port.on("close", () => { state.connected = false; console.log("[serial] closed"); });
+  port.on("close", () => { serialOpen = false; state.connected = false; clearQueue(); console.log("[serial] closed"); });
   port.on("error", (e) => {
+    serialOpen = false;
+    connecting = false;
     state.connected = false;
     state.lastError = e.message;
-    console.error("[serial] error:", e.message);
+    clearQueue();
+    console.error("[serial] error:", e.message, "- will retry");
   });
 
+  // Reconnection is handled by the periodic interval (gated by `connecting`),
+  // so a failed open just needs to release the gate.
   port.open((err) => {
     if (err) {
       connecting = false;
+      serialOpen = false;
       state.connected = false;
       state.lastError = err.message;
-      console.error("[serial] open failed:", err.message, "- retrying in 5s");
-      setTimeout(openPort, 5000);
+      console.error("[serial] open failed:", err.message, "- will retry");
     }
   });
 }
@@ -242,8 +252,7 @@ function openSocket() {
   const tcpPort = parseInt(m[2], 10);
   socketOpen = false;
   port = new net.Socket();
-  const parser = port.pipe(new ReadlineParser({ delimiter: "\n", encoding: "latin1" }));
-  parser.on("data", handleLine);
+  attachParser(port);
 
   port.on("connect", () => {
     connecting = false;
@@ -253,12 +262,13 @@ function openSocket() {
     console.log(`[serial] connected ${DEVICE}`);
     pollAll();
   });
-  port.on("close", () => { socketOpen = false; state.connected = false; console.log("[serial] socket closed"); });
+  port.on("close", () => { socketOpen = false; state.connected = false; clearQueue(); console.log("[serial] socket closed"); });
   port.on("error", (e) => {
     connecting = false;
     socketOpen = false;
     state.connected = false;
     state.lastError = e.message;
+    clearQueue();
     console.error("[serial] socket error:", e.message, "- will retry");
     try { port.destroy(); } catch {}
   });
@@ -270,20 +280,12 @@ function pollAll() {
   for (let amp = 1; amp <= AMP_COUNT; amp++) enqueue(`?${amp}0`);
 }
 
-// Periodic refresh keeps the cache live and reconnects if the port died.
-setInterval(() => {
-  if (portReady()) pollAll();
-  else if (!draining && !connecting) openPort();
-}, POLL_MS);
-
 // ---- HTTP API ------------------------------------------------------------
 const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  next();
-});
+app.use(express.json({ limit: "64kb" }));
+// No CORS: the UI is served from this same origin, so it never needs cross-
+// origin access. Advertising `Access-Control-Allow-Origin: *` would instead let
+// any web page the user visits script the amp through their browser.
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (req, res) => {
@@ -321,14 +323,14 @@ const NAME_TO_CODE = Object.fromEntries(
   Object.entries(ATTRS).map(([code, m]) => [m.name, code])
 );
 
-const ZONE_RE = new RegExp(`^[1-${AMP_COUNT}][1-${PROFILE.zonesPerAmp}]$`);
+const ZONE_RE = zoneReFor(AMP_COUNT, PROFILE.zonesPerAmp);
 app.post("/api/zones/:zone", (req, res) => {
   const zone = req.params.zone;
   if (!ZONE_RE.test(zone)) return res.status(400).json({ error: "bad zone id" });
   const applied = [];
   for (const [key, rawVal] of Object.entries(req.body || {})) {
     const code = ATTRS[key] ? key : NAME_TO_CODE[key];
-    if (!code || code === "pa") continue;
+    if (!code) continue;
     const meta = ATTRS[code];
     let v = parseInt(rawVal, 10);
     if (Number.isNaN(v)) continue;
@@ -342,7 +344,6 @@ app.post("/api/zones/:zone", (req, res) => {
   res.json({ zone, applied });
 });
 
-// Send source of zone 1 to all zones on an amp (PA mode), or query.
 app.post("/api/poll", (req, res) => { pollAll(); res.json({ ok: true }); });
 
 // ---- Shared config API ---------------------------------------------------
@@ -373,41 +374,90 @@ const PROTECTED = [
   "zoneIcons", "disabledZones", "disabledSources", "settingsPin",
 ];
 
+// Shape validation so a malformed PUT can't persist garbage into config.json
+// and break every client until the file is hand-edited.
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isStrArr = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+const VALIDATORS = {
+  title: (v) => typeof v === "string" && v.length <= 100,
+  zoneNames: (v) => isObj(v) && Object.values(v).every((x) => typeof x === "string"),
+  sourceNames: isStrArr,
+  sourceIcons: isStrArr,
+  presets: (v) => Array.isArray(v) && v.length <= 100 && v.every(isObj),
+  activeScene: (v) => v === null || typeof v === "string",
+  disabledZones: isStrArr,
+  disabledSources: (v) => Array.isArray(v) && v.every((x) => Number.isInteger(x)),
+  zoneIcons: (v) => isObj(v) && Object.values(v).every((x) => typeof x === "string"),
+  settingsPin: (v) => typeof v === "string" && v.length <= 64,
+};
+
+// PIN: constant-time compare, plus a small per-IP lockout so the verify
+// endpoint can't be used as a fast brute-force oracle. (The PIN guards against
+// accidental edits on a trusted LAN — it is not a substitute for network
+// security; see the README.)
+function pinMatches(input) {
+  const stored = config.settingsPin;
+  if (!stored) return false;
+  const a = Buffer.from(String(input == null ? "" : input));
+  const b = Buffer.from(stored);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const failByIp = new Map(); // ip -> { count, until }
+const LOCK_AFTER = 5;
+const LOCK_MS = 30000;
+function clientIp(req) { return req.ip || (req.socket && req.socket.remoteAddress) || "?"; }
+function pinLocked(req) {
+  const r = failByIp.get(clientIp(req));
+  return !!(r && r.until > Date.now());
+}
+function notePinResult(req, ok) {
+  const ip = clientIp(req);
+  if (ok) { failByIp.delete(ip); return; }
+  const r = failByIp.get(ip) || { count: 0, until: 0 };
+  r.count++;
+  if (r.count >= LOCK_AFTER) { r.until = Date.now() + LOCK_MS; r.count = 0; }
+  failByIp.set(ip, r);
+}
 function pinOk(req) {
-  return !config.settingsPin || req.get("X-Settings-Pin") === config.settingsPin;
+  return !config.settingsPin || pinMatches(req.get("X-Settings-Pin"));
 }
 
 app.get("/api/config", (req, res) => res.json(publicConfig()));
 
 // Verify a PIN without changing anything; used to unlock Settings client-side.
 app.post("/api/unlock", (req, res) => {
-  const pin = req.body && req.body.pin;
-  res.json({ ok: !!config.settingsPin && pin === config.settingsPin });
+  if (pinLocked(req)) return res.status(429).json({ error: "too many attempts; try again shortly" });
+  const ok = pinMatches(req.body && req.body.pin);
+  notePinResult(req, ok);
+  res.json({ ok });
 });
 
 app.put("/api/config", (req, res) => {
   const body = req.body || {};
+  for (const k of CONFIG_KEYS) {
+    if (k in body && !VALIDATORS[k](body[k])) {
+      return res.status(400).json({ error: `invalid value for ${k}` });
+    }
+  }
   const changesProtected = PROTECTED.some(
     (k) => k in body && JSON.stringify(body[k]) !== JSON.stringify(config[k])
   );
-  if (changesProtected && !pinOk(req)) {
-    return res.status(403).json({ error: "settings are PIN-protected" });
+  if (changesProtected && config.settingsPin) {
+    if (pinLocked(req)) return res.status(429).json({ error: "too many attempts; try again shortly" });
+    const ok = pinOk(req);
+    notePinResult(req, ok);
+    if (!ok) return res.status(403).json({ error: "settings are PIN-protected" });
   }
   for (const k of CONFIG_KEYS) if (k in body) config[k] = body[k];
   saveConfig();
   res.json(publicConfig());
 });
 
-app.listen(HTTP_PORT, "0.0.0.0", () => {
-  console.log(`[http] amp-control on http://0.0.0.0:${HTTP_PORT}`);
-  openPort();
-  advertiseMdns();
-});
-
 // ---- mDNS advertising ----------------------------------------------------
 // Publishes an _http._tcp service whose host is <MDNS_NAME>.local, which
 // makes the browser-resolvable A record for that name. Best-effort only:
 // any failure here must never affect serial control.
+let bonjourInstance = null;
 function advertiseMdns() {
   if (!MDNS_NAME) return;
   try {
@@ -416,12 +466,11 @@ function advertiseMdns() {
     // during a network transition). By default bonjour-service rethrows that
     // from a socket callback, which is an UNCAUGHT exception that kills the
     // whole process — taking serial control down with it. Pass an errorCallback
-    // so the transport error is logged and swallowed instead. Serial control
-    // must never depend on mDNS working.
-    const bonjour = new Bonjour(undefined, (err) => {
+    // so the transport error is logged and swallowed instead.
+    bonjourInstance = new Bonjour(undefined, (err) => {
       console.error("[mdns] transport error (ignored):", err && err.message);
     });
-    const service = bonjour.publish({
+    const service = bonjourInstance.publish({
       name: "Amp Control",
       type: "http",
       port: HTTP_PORT,
@@ -429,12 +478,42 @@ function advertiseMdns() {
     });
     if (service && service.on) service.on("error", (e) => console.error("[mdns] publish error (ignored):", e && e.message));
     console.log(`[mdns] advertising http://${MDNS_NAME}.local:${HTTP_PORT}`);
-    const shutdown = () => { try { bonjour.unpublishAll(() => bonjour.destroy()); } catch {} };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
   } catch (e) {
     console.error("[mdns] disabled:", e.message);
   }
+}
+
+// ---- Graceful shutdown ---------------------------------------------------
+// Flush any pending config write synchronously and tear down mDNS, then exit
+// so launchd/systemd can restart cleanly.
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  flushConfigSync();
+  const done = () => process.exit(0);
+  try {
+    if (bonjourInstance) bonjourInstance.unpublishAll(() => { try { bonjourInstance.destroy(); } catch {} done(); });
+    else done();
+  } catch { done(); }
+  setTimeout(done, 1500).unref(); // safety net if mDNS teardown hangs
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+// ---- Startup (only when run directly, not when required by tests) --------
+if (require.main === module) {
+  // Periodic refresh keeps the cache live and reconnects if the port died.
+  setInterval(() => {
+    if (portReady()) pollAll();
+    else if (!draining && !connecting) openPort();
+  }, POLL_MS);
+
+  app.listen(HTTP_PORT, "0.0.0.0", () => {
+    console.log(`[http] amp-control on http://0.0.0.0:${HTTP_PORT}`);
+    openPort();
+    advertiseMdns();
+  });
 }
 
 // ---- Port probe (--probe) ------------------------------------------------
@@ -472,3 +551,4 @@ async function runProbe(plain) {
   console.log(`\nStart with one, e.g.:  DEVICE=${list[0].path} npm start`);
   console.log("Or a serial-over-IP bridge:  DEVICE=socket://192.168.1.50:4001 npm start");
 }
+

@@ -522,7 +522,7 @@ let editingScene = null;       // id of the scene being live-edited in the Mixer
 const markSettingsDirty = () => { settingsDirty = true; };
 
 function buildOrder(n){ const a=[]; const zpa=(profile&&profile.zonesPerAmp)||6; for(let amp=1;amp<=n;amp++) for(let z=1;z<=zpa;z++) a.push(`${amp}${z}`); return a; }
-const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const zIndex = zid => zoneOrder.indexOf(zid);
 const zName = zid => config.zoneNames[zid] || ("Zone " + (zIndex(zid)+1));
 function applyTitle(){ document.getElementById("appTitle").textContent = config.title; document.title = config.title; }
@@ -1127,7 +1127,13 @@ document.getElementById("statusClose").onclick = () => closeOverlay("statusOverl
 });
 
 document.querySelector("#toast .ic").innerHTML=ui("alert");
-loadConfig().then(()=>{ renderPresets(); poll(); setInterval(poll, 3000); });
+// Poll every 3s, but skip while the tab is hidden (no point hammering the amp
+// when nobody's looking); refresh immediately when it becomes visible again.
+loadConfig().then(()=>{
+  renderPresets(); poll();
+  setInterval(()=>{ if(!document.hidden) poll(); }, 3000);
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) poll(); });
+});
 </script>
 </body>
 </html>
