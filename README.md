@@ -34,10 +34,6 @@ hide zones and sources:
 | --- | --- |
 | ![Scenes view](docs/scenes.png) | ![Settings view](docs/settings.png) |
 
-Responsive down to a phone, where it installs as a PWA:
-
-<img src="docs/mobile.png" alt="Mobile mixer view" width="320">
-
 <sub>Screenshots use a demo configuration — fictional room and source names.</sub>
 
 ## Supported models
