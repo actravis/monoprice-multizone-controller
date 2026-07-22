@@ -177,7 +177,10 @@
   .panel h3{margin:0 0 16px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--primary-soft)}
   .field label{display:block; margin-bottom:8px; color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase}
   .input{width:100%; background:var(--surface-lowest); border:1px solid var(--line); border-radius:var(--radius-md); color:var(--ink);
-         padding:12px 14px; font-family:var(--font); font-size:14px; font-weight:500; box-shadow:var(--shadow-inset); transition:.15s}
+         padding:12px 14px; font-family:var(--font); font-size:16px; font-weight:500; box-shadow:var(--shadow-inset); transition:.15s}
+  /* 16px keeps iOS Safari from auto-zooming (and never zooming back) when a
+     text field like the PIN prompt gets focus — that zoom is what "breaks"
+     the mobile layout in Settings and lingers into the Mixer. */
   .input:focus{outline:none; border-color:var(--primary)}
   .setrow{display:flex; align-items:center; gap:10px; margin-bottom:10px}
   .setrow .ix{flex:0 0 24px; color:var(--dim); font-weight:600; font-variant-numeric:tabular-nums}
