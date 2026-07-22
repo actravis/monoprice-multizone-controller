@@ -491,10 +491,14 @@ const DEFAULT_TITLE = "Amp Control";
 const defaultConfig = () => ({ title:DEFAULT_TITLE, zoneNames:{}, sourceNames:SRC_DEFAULTS.slice(), sourceIcons:ICON_DEFAULTS.slice(), presets:[], activeScene:null, disabledZones:[], disabledSources:[], zoneIcons:{}, settingsPinSet:false });
 const zoneDisabled = id => (config.disabledZones||[]).includes(id);
 const srcDisabled = si => (config.disabledSources||[]).includes(si); // si is 0-based
+// How many sources this model exposes (caps a longer stored sourceNames list).
+const srcCount = () => Math.min(config.sourceNames.length, (profile&&profile.sources)||config.sourceNames.length);
 const zoneIcon = id => (config.zoneIcons||{})[id] || "speaker";
 const LS = (k,d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch{ return d; } };
 
 let config = defaultConfig();
+// Active model profile from /api/config; defaults match monoprice-6 until loaded.
+let profile = { zonesPerAmp:6, maxAmps:3, sources:6, volMax:38, toneMax:14, balMax:20 };
 let ampCount = 1;
 let zoneOrder = buildOrder(1);
 let lastZones = [];
@@ -514,7 +518,7 @@ let forceLeaveSettings = false; // bypass the discard guard (save/cancel)
 let editingScene = null;       // id of the scene being live-edited in the Mixer
 const markSettingsDirty = () => { settingsDirty = true; };
 
-function buildOrder(n){ const a=[]; for(let amp=1;amp<=n;amp++) for(let z=1;z<=6;z++) a.push(`${amp}${z}`); return a; }
+function buildOrder(n){ const a=[]; const zpa=(profile&&profile.zonesPerAmp)||6; for(let amp=1;amp<=n;amp++) for(let z=1;z<=zpa;z++) a.push(`${amp}${z}`); return a; }
 const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 const zIndex = zid => zoneOrder.indexOf(zid);
 const zName = zid => config.zoneNames[zid] || ("Zone " + (zIndex(zid)+1));
@@ -532,8 +536,14 @@ function saveConfig(){
 }
 
 async function loadConfig(){
-  try{ config = Object.assign(defaultConfig(), await api("/api/config")); }
+  try{
+    const c = await api("/api/config");
+    if(c.profile) profile = Object.assign(profile, c.profile);
+    delete c.profile; delete c.model;   // server-derived, not persisted config
+    config = Object.assign(defaultConfig(), c);
+  }
   catch{ config = defaultConfig(); }
+  zoneOrder = buildOrder(ampCount);   // honor profile.zonesPerAmp now it's known
   migrateLocal();
   applyTitle();
 }
@@ -554,9 +564,9 @@ function migrateLocal(){
 }
 
 // Balance is 0-20 with 10 = center; show the offset from center as L/R.
-const balFmt = v => { const d=v-10; return d===0 ? "Center" : (d<0 ? "L "+(-d) : "R "+d); };
-// Slider readout: balance as L/R, volume scaled out of 38, everything else raw.
-const fmtVal = (act,v) => act==="balance" ? balFmt(v) : act==="volume" ? v+"/38" : String(v);
+const balFmt = v => { const c=((profile&&profile.balMax)||20)/2; const d=v-c; return d===0 ? "Center" : (d<0 ? "L "+(-d) : "R "+d); };
+// Slider readout: balance as L/R, volume scaled out of volMax, everything else raw.
+const fmtVal = (act,v) => act==="balance" ? balFmt(v) : act==="volume" ? v+"/"+((profile&&profile.volMax)||38) : String(v);
 function paintRange(r){
   const min=+r.min, max=+r.max, pct=((+r.value-min)/(max-min))*100;
   if(r.dataset.act==="balance"){
@@ -620,7 +630,7 @@ async function poll(){
     document.getElementById("hRx").textContent = h.secondsSinceRx==null ? "—" : `${h.secondsSinceRx}s ago`;
     document.getElementById("hUp").textContent = fmtUptime(h.uptimeSec);
     document.getElementById("hwRef").innerHTML =
-      `Monoprice MPR-6ZHMAUT · RS-232 ${h.baud||9600} 8N1<br>Device ${esc(h.device||"—")} · ${ampCount} amp(s)<br>${location.host}`;
+      `${esc(h.modelLabel||"Monoprice MPR-6ZHMAUT")} · ${h.transport==="tcp"?"Serial-over-IP":"RS-232 "+(h.baud||9600)+" 8N1"}<br>Device ${esc(h.device||"—")} · ${ampCount} amp(s)<br>${location.host}`;
   }catch(e){ badge.className="badge bad"; bt.textContent="unreachable"; }
 }
 
@@ -692,12 +702,12 @@ function zoneCard(zid){
       <div class="sw ${on?"on":""}" data-act="power" role="switch" aria-checked="${on}" aria-label="Power ${esc(zName(zid))}" tabindex="0"></div>
     </div>
     <div class="ctl${on?"":" locked"}">
-      <div class="lbl"><span>Volume</span><b>${parseInt(z.vo,10)}/38</b></div>
-      <input type="range" min="0" max="38" value="${parseInt(z.vo,10)}" data-act="volume">
+      <div class="lbl"><span>Volume</span><b>${parseInt(z.vo,10)}/${profile.volMax}</b></div>
+      <input type="range" min="0" max="${profile.volMax}" value="${parseInt(z.vo,10)}" data-act="volume">
     </div>
     <div class="ctl${on?"":" locked"}">
       <div class="lbl"><span>Source</span></div>
-      <div class="srcs">${config.sourceNames.map((s,si)=> srcDisabled(si) ? "" :
+      <div class="srcs">${config.sourceNames.slice(0,srcCount()).map((s,si)=> srcDisabled(si) ? "" :
         `<div class="src ${parseInt(z.ch,10)===si+1?"active":""}" data-act="source" data-val="${si+1}">${svg(config.sourceIcons[si])}<span>${esc(s)}</span></div>`
       ).join("")}</div>
     </div>
@@ -706,11 +716,11 @@ function zoneCard(zid){
       <summary>Sound</summary>
       <div class="adv">
         <div class="lbl"><span>Bass</span><b>${parseInt(z.bs,10)}</b></div>
-        <input type="range" min="0" max="14" value="${parseInt(z.bs,10)}" data-act="bass">
+        <input type="range" min="0" max="${profile.toneMax}" value="${parseInt(z.bs,10)}" data-act="bass">
         <div class="lbl"><span>Treble</span><b>${parseInt(z.tr,10)}</b></div>
-        <input type="range" min="0" max="14" value="${parseInt(z.tr,10)}" data-act="treble">
+        <input type="range" min="0" max="${profile.toneMax}" value="${parseInt(z.tr,10)}" data-act="treble">
         <div class="lbl"><span>Balance</span><b>${balFmt(parseInt(z.bl,10))}</b></div>
-        <input type="range" min="0" max="20" value="${parseInt(z.bl,10)}" data-act="balance">
+        <input type="range" min="0" max="${profile.balMax}" value="${parseInt(z.bl,10)}" data-act="balance">
         <div class="balcap"><span>L</span><span>R</span></div>
       </div>
     </details>`;
@@ -945,7 +955,7 @@ function populateSettings(){
     markSettingsDirty();
   });
   const sf=document.getElementById("srcFields");
-  sf.innerHTML = config.sourceNames.map((s,i)=>{
+  sf.innerHTML = config.sourceNames.slice(0,srcCount()).map((s,i)=>{
     const on=!tmpDisabledSources.includes(i);
     return `<div class="setrow${on?"":" off"}"><span class="ix num">${String(i+1).padStart(2,"0")}</span>`
     + `<button class="iconpick" data-pick="${i}" aria-label="Choose icon for source ${i+1}">${svg(tmpIcons[i])}</button>`
