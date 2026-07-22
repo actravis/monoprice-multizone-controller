@@ -814,7 +814,7 @@ function renderPresets(){
   }
   const total=zoneOrder.filter(id=>!zoneDisabled(id)).length;
   list.innerHTML = config.presets.map(p=>{
-    const ids=Object.keys(p.zones).filter(id=>!zoneDisabled(id));
+    const ids=Object.keys(p.zones||{}).filter(id=>!zoneDisabled(id));
     const chips=ids.slice(0,4).map(id=>`<span class="chip">${esc(zName(id))}</span>`).join("")
       + (ids.length>4?`<span class="chip">+${ids.length-4} more</span>`:"");
     const active=p.id===config.activeScene;
@@ -848,7 +848,7 @@ function renderPresets(){
 
 async function applyPreset(id){
   const p=config.presets.find(x=>x.id===id); if(!p) return;
-  for(const [zid,c] of Object.entries(p.zones)){
+  for(const [zid,c] of Object.entries(p.zones||{})){
     if(zoneDisabled(zid)) continue;
     if(c.power){
       await postZone(zid,{power:1});

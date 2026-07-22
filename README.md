@@ -128,12 +128,18 @@ User-facing settings (zone/source names, icons, scenes, the PIN) are stored in
 
 This app is designed to run on a **trusted home LAN** and has no user accounts.
 
+- **Anyone who can reach the server can control the amp.** Operational actions
+  (power, volume, source, applying scenes) are intentionally open to every
+  device on the network — including guests and any compromised IoT device on
+  the same LAN. Treat reachability as the security boundary.
 - The optional Settings PIN is enforced **server-side**: the PIN is never sent
-  to clients (only a "PIN is set" flag is), and changes to protected settings
-  require the PIN via an `X-Settings-Pin` header. It guards against accidental
-  edits — it is **not** a substitute for network security.
-- Operational actions (changing volume/source, applying scenes) are
-  intentionally open to anyone on the LAN.
+  to clients (only a "PIN is set" flag is), changes to protected settings
+  require it via an `X-Settings-Pin` header, it is compared in constant time,
+  and repeated wrong guesses are briefly rate-limited. It exists to prevent
+  *accidental* edits — it is **not** a substitute for network security and is
+  not meant to withstand a determined attacker on your LAN.
+- There is **no CORS** header: the API only accepts same-origin requests from
+  its own UI, so a random website you visit can't script your amp.
 - **Do not expose this server to the public internet.** If you need remote
   access, use a VPN or an authenticated reverse proxy.
 

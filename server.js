@@ -13,6 +13,7 @@ const { SerialPort } = require("serialport");
 const { ReadlineParser } = require("@serialport/parser-readline");
 // Pure protocol/profile data + helpers (dependency-free, unit-tested in test/).
 const { PROFILES, SOCKET_RE, zoneIdsFor, statusReFor, zoneReFor, attrsFor } = require("./lib/protocol");
+const { validateConfigPatch } = require("./lib/validate");
 
 // Load a local .env if present so `npm start` and the installed service honor
 // it. Optional: if dotenv isn't installed yet, fall back to ambient env vars.
@@ -88,7 +89,10 @@ loadConfig();
 
 // Persistence is debounced + async so a burst of PUTs doesn't block the event
 // loop on synchronous disk writes. A pending write is flushed synchronously on
-// shutdown (see shutdown()) so the last change is never lost.
+// shutdown (see shutdown()) so the last change is never lost. Writes go to a
+// temp file and are atomically renamed into place, so a crash mid-write can
+// never leave a truncated/corrupt config.json (the app's only persistent state).
+const CONFIG_TMP = CONFIG_PATH + ".tmp";
 let saveTimer = null;
 let savePending = false;
 function saveConfig() {
@@ -99,15 +103,18 @@ function flushConfig() {
   saveTimer = null;
   if (!savePending) return;
   savePending = false;
-  fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), (e) => {
-    if (e) console.error("[config] save failed:", e.message);
+  fs.writeFile(CONFIG_TMP, JSON.stringify(config, null, 2), (e) => {
+    if (e) return console.error("[config] save failed:", e.message);
+    fs.rename(CONFIG_TMP, CONFIG_PATH, (e2) => { if (e2) console.error("[config] rename failed:", e2.message); });
   });
 }
 function flushConfigSync() {
   if (!savePending) return;
   savePending = false;
-  try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); }
-  catch (e) { console.error("[config] final save failed:", e.message); }
+  try {
+    fs.writeFileSync(CONFIG_TMP, JSON.stringify(config, null, 2));
+    fs.renameSync(CONFIG_TMP, CONFIG_PATH);
+  } catch (e) { console.error("[config] final save failed:", e.message); }
 }
 
 // Settable attribute metadata for the active profile (protocol code -> meta).
@@ -145,10 +152,19 @@ function portReady() {
   return !!port && (isNetworkDevice ? socketOpen : serialOpen);
 }
 
-// On disconnect, drop anything still queued: a queued volume/source change is
-// stale by the time the link returns, and replaying it minutes later would be
-// surprising. State re-syncs from the amp via pollAll() on reconnect.
-function clearQueue() { writeQueue = []; }
+let drainGen = 0; // bumped to invalidate an in-flight drain loop
+
+// On disconnect, drop anything still queued (a queued volume/source change is
+// stale by the time the link returns) AND release the drain lock. This is
+// important: a paced write's flush callback may never fire once the handle is
+// destroyed, which would otherwise leave `draining` stuck true and silently
+// wedge the queue forever — even after reconnect. Bumping drainGen also makes
+// any late callback from the old loop a no-op instead of a second live loop.
+function clearQueue() {
+  writeQueue = [];
+  draining = false;
+  drainGen++;
+}
 
 function enqueue(cmd) {
   writeQueue.push(cmd);
@@ -158,7 +174,9 @@ function enqueue(cmd) {
 function drain() {
   if (draining) return;
   draining = true;
+  const gen = ++drainGen;
   const step = () => {
+    if (gen !== drainGen) return; // superseded (disconnect/reset); stop quietly
     const cmd = writeQueue.shift();
     if (!cmd || !portReady()) {
       draining = false;
@@ -374,22 +392,7 @@ const PROTECTED = [
   "zoneIcons", "disabledZones", "disabledSources", "settingsPin",
 ];
 
-// Shape validation so a malformed PUT can't persist garbage into config.json
-// and break every client until the file is hand-edited.
-const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const isStrArr = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
-const VALIDATORS = {
-  title: (v) => typeof v === "string" && v.length <= 100,
-  zoneNames: (v) => isObj(v) && Object.values(v).every((x) => typeof x === "string"),
-  sourceNames: isStrArr,
-  sourceIcons: isStrArr,
-  presets: (v) => Array.isArray(v) && v.length <= 100 && v.every(isObj),
-  activeScene: (v) => v === null || typeof v === "string",
-  disabledZones: isStrArr,
-  disabledSources: (v) => Array.isArray(v) && v.every((x) => Number.isInteger(x)),
-  zoneIcons: (v) => isObj(v) && Object.values(v).every((x) => typeof x === "string"),
-  settingsPin: (v) => typeof v === "string" && v.length <= 64,
-};
+// (Body shape validation lives in ./lib/validate — validateConfigPatch.)
 
 // PIN: constant-time compare, plus a small per-IP lockout so the verify
 // endpoint can't be used as a fast brute-force oracle. (The PIN guards against
@@ -402,20 +405,31 @@ function pinMatches(input) {
   const b = Buffer.from(stored);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
-const failByIp = new Map(); // ip -> { count, until }
+const failByIp = new Map(); // ip -> { count, until, ts }
 const LOCK_AFTER = 5;
 const LOCK_MS = 30000;
+const FAIL_TTL_MS = 10 * 60 * 1000; // forget idle records after 10 min
 function clientIp(req) { return req.ip || (req.socket && req.socket.remoteAddress) || "?"; }
+// Drop stale entries so a stream of distinct client IPs can't grow the map
+// without bound. Cheap (only runs on PIN activity, capped work per call).
+function pruneFails(now) {
+  for (const [ip, r] of failByIp) {
+    if (r.until <= now && now - r.ts > FAIL_TTL_MS) failByIp.delete(ip);
+  }
+}
 function pinLocked(req) {
   const r = failByIp.get(clientIp(req));
   return !!(r && r.until > Date.now());
 }
 function notePinResult(req, ok) {
   const ip = clientIp(req);
+  const now = Date.now();
+  pruneFails(now);
   if (ok) { failByIp.delete(ip); return; }
-  const r = failByIp.get(ip) || { count: 0, until: 0 };
+  const r = failByIp.get(ip) || { count: 0, until: 0, ts: now };
   r.count++;
-  if (r.count >= LOCK_AFTER) { r.until = Date.now() + LOCK_MS; r.count = 0; }
+  r.ts = now;
+  if (r.count >= LOCK_AFTER) { r.until = now + LOCK_MS; r.count = 0; }
   failByIp.set(ip, r);
 }
 function pinOk(req) {
@@ -434,11 +448,8 @@ app.post("/api/unlock", (req, res) => {
 
 app.put("/api/config", (req, res) => {
   const body = req.body || {};
-  for (const k of CONFIG_KEYS) {
-    if (k in body && !VALIDATORS[k](body[k])) {
-      return res.status(400).json({ error: `invalid value for ${k}` });
-    }
-  }
+  const valid = validateConfigPatch(body, CONFIG_KEYS);
+  if (!valid.ok) return res.status(400).json({ error: `invalid value for ${valid.key}` });
   const changesProtected = PROTECTED.some(
     (k) => k in body && JSON.stringify(body[k]) !== JSON.stringify(config[k])
   );
@@ -451,6 +462,15 @@ app.put("/api/config", (req, res) => {
   for (const k of CONFIG_KEYS) if (k in body) config[k] = body[k];
   saveConfig();
   res.json(publicConfig());
+});
+
+// JSON error handler so malformed bodies / oversized payloads return JSON
+// (not express's default HTML) with a sensible status.
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  const status = err.status || err.statusCode || 400;
+  console.error("[http] request error:", err.message);
+  res.status(status).json({ error: status === 413 ? "request body too large" : "bad request" });
 });
 
 // ---- mDNS advertising ----------------------------------------------------
@@ -551,4 +571,9 @@ async function runProbe(plain) {
   console.log(`\nStart with one, e.g.:  DEVICE=${list[0].path} npm start`);
   console.log("Or a serial-over-IP bridge:  DEVICE=socket://192.168.1.50:4001 npm start");
 }
+
+// The Express app is exported for integration tests (test/api.test.js). Thanks
+// to the require.main guard above, requiring this file does not start listening
+// or open the serial port.
+module.exports = { app };
 
