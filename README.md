@@ -57,8 +57,8 @@ command syntax (not just different dimensions), like the Xantech family.
 ### One-command install (recommended)
 
 ```bash
-git clone https://github.com/<you>/amp-control.git
-cd amp-control
+git clone https://github.com/actravis/monoprice-multizone-controller.git
+cd monoprice-multizone-controller
 ./setup.sh
 ```
 
