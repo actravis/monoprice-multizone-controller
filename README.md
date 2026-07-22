@@ -21,6 +21,25 @@ exposes a small JSON API.
 The whole frontend is a single static `public/index.html` (no build step); the
 backend is a small Node/Express server that talks to the amp over serial.
 
+## Screenshots
+
+The **Mixer** — one card per zone with live state and instant, optimistic controls:
+
+![Mixer view showing six zones](docs/mixer.png)
+
+**Scenes** recall every zone at once; **Settings** lets you rename, re-icon, and
+hide zones and sources:
+
+| Scenes | Settings |
+| --- | --- |
+| ![Scenes view](docs/scenes.png) | ![Settings view](docs/settings.png) |
+
+Responsive down to a phone, where it installs as a PWA:
+
+<img src="docs/mobile.png" alt="Mobile mixer view" width="320">
+
+<sub>Screenshots use a demo configuration — fictional room and source names.</sub>
+
 ## Supported models
 
 Select your amp with the `MODEL` environment variable. All of these speak the
