@@ -1,6 +1,6 @@
 {
   "name": "amp-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LAN web control for Monoprice (and clone) multizone amplifiers over RS-232",
   "license": "MIT",
   "keywords": [
