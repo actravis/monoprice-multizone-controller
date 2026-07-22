@@ -412,13 +412,22 @@ function advertiseMdns() {
   if (!MDNS_NAME) return;
   try {
     const { Bonjour } = require("bonjour-service");
-    const bonjour = new Bonjour();
-    bonjour.publish({
+    // The mDNS multicast socket can throw asynchronously (e.g. EADDRNOTAVAIL
+    // during a network transition). By default bonjour-service rethrows that
+    // from a socket callback, which is an UNCAUGHT exception that kills the
+    // whole process — taking serial control down with it. Pass an errorCallback
+    // so the transport error is logged and swallowed instead. Serial control
+    // must never depend on mDNS working.
+    const bonjour = new Bonjour(undefined, (err) => {
+      console.error("[mdns] transport error (ignored):", err && err.message);
+    });
+    const service = bonjour.publish({
       name: "Amp Control",
       type: "http",
       port: HTTP_PORT,
       host: `${MDNS_NAME}.local`,
     });
+    if (service && service.on) service.on("error", (e) => console.error("[mdns] publish error (ignored):", e && e.message));
     console.log(`[mdns] advertising http://${MDNS_NAME}.local:${HTTP_PORT}`);
     const shutdown = () => { try { bonjour.unpublishAll(() => bonjour.destroy()); } catch {} };
     process.on("SIGTERM", shutdown);
