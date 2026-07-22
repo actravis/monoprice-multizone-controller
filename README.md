@@ -174,6 +174,13 @@ LaunchAgent or a Linux systemd unit.
 the RS-232 wiring respectively; both honor the `DEVICE` environment variable.
 `node server.js --probe` (`npm run ports`) just lists candidate serial ports.
 
+## Support
+
+This is free, open-source software built in my spare time. If it saved you a
+headache and you'd like to say thanks, tips are welcome (never expected):
+
+**[paypal.me/andrewctravis](https://paypal.me/andrewctravis)**
+
 ## License
 
 [MIT](LICENSE)
